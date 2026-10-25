@@ -315,6 +315,7 @@ export class Surface3D {
     const sy = Math.sign(eye[1] - TARGET[1]) || 1;
     this._lines(mvp, this._grid(sx, sy), gl.LINES);
     this._surface(mvp, eye, false);
+    if (this.grid.soc) this._soc(mvp, sy);
     if (this.hover) this._crosshair(mvp);
     this._labels(mvp, sx, sy);
   }
@@ -408,6 +409,45 @@ export class Surface3D {
     return out;
   }
 
+  // The BMS's SOC over time as a band on the back wall (socLo at the floor, socHi at the top), drawn
+  // faintly where the surface is in front of it and solid where it isn't; a dot at the hovered time.
+  _soc(mvp, sy) {
+    const gl = this.gl;
+    const { soc, socColor, cols } = this.grid;
+    const y = -sy * AY * 0.995;
+    const zOf = (v) => this._socZ(v);
+    const band = (alpha) => {
+      const out = [];
+      const c = [...socColor, alpha];
+      const h = 0.004;
+      for (let k = 0; k + 1 < cols; k++) {
+        const a = soc[k];
+        const b = soc[k + 1];
+        if (Number.isNaN(a) || Number.isNaN(b)) continue;
+        const [x0, x1, z0, z1] = [this._x(k), this._x(k + 1), zOf(a), zOf(b)];
+        out.push(x0, y, z0 - h, ...c, x1, y, z1 - h, ...c, x1, y, z1 + h, ...c);
+        out.push(x0, y, z0 - h, ...c, x1, y, z1 + h, ...c, x0, y, z0 + h, ...c);
+      }
+      return out;
+    };
+    gl.disable(gl.DEPTH_TEST);
+    this._lines(mvp, band(0.3), gl.TRIANGLES);
+    gl.enable(gl.DEPTH_TEST);
+    this._lines(mvp, band(1), gl.TRIANGLES);
+    const k = this.hover?.k;
+    if (k !== undefined && !Number.isNaN(soc[k])) {
+      const dpr = window.devicePixelRatio || 1;
+      gl.disable(gl.DEPTH_TEST);
+      this._lines(mvp, [this._x(k), y, zOf(soc[k]), ...socColor, 1], gl.POINTS, 8 * dpr);
+      gl.enable(gl.DEPTH_TEST);
+    }
+  }
+
+  _socZ(v) {
+    const { socLo = 0, socHi = 100 } = this.grid;
+    return AZ * Math.min(1, Math.max(0, (v - socLo) / (socHi - socLo || 1)));
+  }
+
   // The hovered cell's line across time and the hovered moment's line across the cells, on the
   // surface, with a dot where they cross and their shadows on the floor.
   _crosshair(mvp) {
@@ -459,6 +499,14 @@ export class Surface3D {
     put([0, sy * (AY + 0.22), 0], titles.x, "title");
     put([sx * (AX + 0.22), 0, 0], titles.y, "title");
     put([-fx, sy * AY, AZ + 0.08], titles.z, "title");
+    // SOC's own scale, up the back wall's far corner.
+    if (this.grid.soc) {
+      // Not at the floor, where the cell numbers end.
+      for (const t of this.grid.socTicks ?? []) {
+        if (this._socZ(t.v) > AZ * 0.05) put([fx, -sy * AY, this._socZ(t.v)], t.text, "soc");
+      }
+      put([fx, -sy * AY, AZ + 0.08], titles.soc, "title soc");
+    }
     const el = this.labelsEl;
     while (el.children.length < items.length) el.appendChild(document.createElement("span"));
     [...el.children].forEach((span, i) => {

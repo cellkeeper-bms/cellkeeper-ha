@@ -22,7 +22,8 @@ each cell's difference from the pack average at the time, with the spread betwee
 lowest cell underneath, balancing cells marked on request, and a readout of the cell and time under
 the pointer. Its **3D** button shows the same data, in the same colouring, as a lit surface you
 can turn and zoom (it keeps where you turned it; a phone starts looking down the time axis), with
-a crosshair and the same readout following the pointer. It reads Home
+a crosshair and the same readout following the pointer, and the BMS's SOC over the same time as
+a line on the back wall, with its own scale. It reads Home
 Assistant's 5-minute and hourly statistics for all cells in one request instead of every cell's raw
 history, so 24 h opens in about a second, in 2D or 3D. Both fill the window's height.
 

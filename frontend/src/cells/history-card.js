@@ -4,8 +4,8 @@ import { PackCard, baseStyles, fmt } from "../overview/base.js";
 import { define } from "../context.js";
 import { Surface3D } from "./surface.js";
 import {
-  RANGES, REFRESH_MS, VOLTAGE_STOPS, balanceMarks, colorTable, columnStats, fetchBalancing, fetchCellHistory, packCells,
-  percentile,
+  RANGES, REFRESH_MS, VOLTAGE_STOPS, balanceMarks, colorTable, columnStats, fetchBalancing, fetchCellHistory, fetchSeries,
+  packCells, percentile,
 } from "./history.js";
 
 // custom:cellkeeper-cell-history-card
@@ -168,12 +168,18 @@ class CellKeeperCellHistoryCard extends PackCard {
         marks && Object.keys(levels).length ? fetchBalancing(this.hass, Object.keys(levels), range) : undefined,
       ]);
       if (range !== this._range) return;
+      // The BMS's own SOC (not the scaled one sent to the inverter), on the same time grid.
+      const soc = this.has("soc") && data.cols
+        ? await fetchSeries(this.hass, this.eid("soc"), range, data).catch(() => undefined)
+        : undefined;
+      if (range !== this._range) return;
       this._data = {
         ...data,
         cells,
         range,
         ...columnStats(data.z, data.cols),
         marks: states ? balanceMarks(data, cells, states, levels) : undefined,
+        soc: soc?.some((v) => !Number.isNaN(v)) ? soc : undefined,
       };
       this._error = undefined;
     } catch (err) {
@@ -285,8 +291,23 @@ class CellKeeperCellHistoryCard extends PackCard {
         v: deviation ? v / 1000 : v,
         text: deviation ? `${v > 0 ? "+" : ""}${fmt(this.hass, v, digits)}` : fmt(this.hass, v, digits),
       })),
-      titles: { x: "Time", y: "Cell", z: deviation ? "mV from average" : "V" },
+      titles: { x: "Time", y: "Cell", z: deviation ? "mV from average" : "V", soc: "SOC" },
+      soc: d.soc,
+      ...this._socScale(),
+      socColor: rgbOf(getComputedStyle(this).getPropertyValue("--primary-color").trim() || "#03a9f4"),
     };
+  }
+
+  // The SOC scale on the 3D view's back wall: the range the SOC covered, out to whole 10 %, so
+  // a pack that stayed between 90 and 100 % doesn't draw a flat line along the top.
+  _socScale() {
+    const d = this._data;
+    if (!d?.soc) return {};
+    const values = [...d.soc].filter((v) => !Number.isNaN(v));
+    const socLo = Math.max(0, Math.floor((Math.min(...values) - 2) / 10) * 10);
+    const socHi = Math.min(100, Math.ceil((Math.max(...values) + 2) / 10) * 10);
+    const { ticks } = niceTicks(socLo, socHi, 4);
+    return { socLo, socHi, socTicks: ticks.map((v) => ({ v, text: `${fmt(this.hass, v, 0)} %` })) };
   }
 
   _setView(view) {
@@ -316,6 +337,7 @@ class CellKeeperCellHistoryCard extends PackCard {
       </div>
       <div class="foot">
         ${this._ramp()}
+        ${d?.soc ? html`<span><i class="socsw"></i>SOC on the back wall</span>` : ""}
         <span class="dim">Drag to turn · scroll or pinch to zoom · double-click or Reset view to start over</span>
       </div>`;
   }
@@ -516,6 +538,7 @@ class CellKeeperCellHistoryCard extends PackCard {
                 : ""}`
         : ""}
       <div class="num">Spread ${Number.isNaN(spreadMv) ? "–" : html`${fmt(this.hass, spreadMv, 0)} mV`}</div>
+      ${d.soc && !Number.isNaN(d.soc[hv.k]) ? html`<div class="num">SOC ${fmt(this.hass, d.soc[hv.k], 1)} %</div>` : ""}
     </div>`;
   }
 
@@ -850,6 +873,15 @@ class CellKeeperCellHistoryCard extends PackCard {
         top: 0;
         white-space: nowrap;
         text-shadow: 0 0 3px var(--card-background-color, #fff), 0 0 2px var(--card-background-color, #fff);
+      }
+      .socsw {
+        width: 14px;
+        height: 3px;
+        border-radius: 2px;
+        background: var(--primary-color);
+      }
+      .labels span.soc {
+        color: var(--primary-color);
       }
       .labels span.title {
         font-size: 11px;

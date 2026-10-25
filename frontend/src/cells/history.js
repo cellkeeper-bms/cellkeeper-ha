@@ -94,6 +94,27 @@ export function fetchCellHistory(hass, cells, range) {
   });
 }
 
+// One sensor's means over `range` on the cells' time grid (from fetchCellHistory): a Float32Array
+// with NaN where there is no statistic. Used for the BMS's SOC.
+export async function fetchSeries(hass, id, range, grid) {
+  const points = await cached(["series", range, id].join(","), async () => {
+    const stats = await hass.callWS({
+      type: "recorder/statistics_during_period",
+      ...span(range),
+      statistic_ids: [id],
+      period: RANGES[range].period,
+      types: ["mean"],
+    });
+    return (stats[id] ?? []).filter((p) => Number.isFinite(p.mean)).map((p) => [p.start, p.mean]);
+  });
+  const out = new Float32Array(grid.cols).fill(NaN);
+  for (const [start, mean] of points) {
+    const k = Math.round((start - grid.t0) / grid.step);
+    if (k >= 0 && k < grid.cols) out[k] = mean;
+  }
+  return out;
+}
+
 // State changes of the balancing sensors over `range`: { entity id: [{ s, lu }, ...] }. These are
 // text without statistics, and change often (tens of thousands of changes in 30 days), so they
 // are only fetched when the heatmap marks them.
