@@ -15,7 +15,7 @@ import { VISUALS, visualStyles } from "./visuals.js";
 //       name: Soft min
 //       help: one line under the name
 //       factor: 0.1, unit: V, digits: 1        show and edit in other units (value × factor)
-//       confirm: true                          ask again before writing
+//       confirm: true                          a Set button (or Enter), pressed twice for the same value
 //     - key: button:calibrate_isolation_zero   a button, pressed after a second tap
 //     - key: switch:log_enable                 a toggle
 //     - key: sensor:isolation_check_age        a read-only value
@@ -211,7 +211,9 @@ class CellKeeperSettingsCard extends PackCard {
       return html`${status}<span class="value num">${fmt(this.hass, value, digits)}<span class="unit">${unit}</span></span>
         <ha-icon class="lock" icon="mdi:lock-outline"></ha-icon>`;
     }
-    const armed = this._armed === row.key;
+    // A confirmed row is armed for one value: a different value typed before the second press
+    // asks again instead of writing what was confirmed only once.
+    const armed = this._armed?.startsWith(`${row.key}=`);
     const id = st.entity_id;
     const commit = (input) => {
       const v = parseFloat(input.value);
@@ -222,18 +224,21 @@ class CellKeeperSettingsCard extends PackCard {
         this._write(row, v);
       } else {
         // The draft keeps the typed value on screen through state updates until the second
-        // Enter writes it (or the arm expires).
+        // press writes it (or the arm expires).
         this._drafts = { ...this._drafts, [id]: v };
-        this._confirm(row.key, () => (this._dropDraft(id), this._write(row, v)), () => this._dropDraft(id));
+        this._confirm(`${row.key}=${v}`, () => (this._dropDraft(id), this._write(row, v)), () => this._dropDraft(id));
       }
     };
+    // Phone keypads for inputmode=decimal have no minus sign (and on iPhones no Enter key), so
+    // settings that go negative get the full number keyboard.
+    const negative = (st.attributes.min ?? 0) < 0;
     return html`
       ${status}
       <div class="stepper ${armed ? "armed" : ""}">
         <button aria-label="Decrease" @click=${() => this._nudge(row, st, value, -step)} ?hidden=${row.confirm}>−</button>
         <input
           type="number"
-          inputmode="decimal"
+          inputmode=${negative ? "text" : "decimal"}
           step=${step}
           class=${shown !== value ? "draft" : ""}
           .value=${shown.toFixed(digits)}
@@ -254,7 +259,14 @@ class CellKeeperSettingsCard extends PackCard {
         <span class="unit">${unit}</span>
         <button aria-label="Increase" @click=${() => this._nudge(row, st, value, step)} ?hidden=${row.confirm}>+</button>
       </div>
-      ${armed ? html`<span class="confirm">Enter again to set</span>` : ""}
+      ${row.confirm
+        ? html`<button
+            class="action ${armed ? "armed" : ""}"
+            @click=${(e) => commit(e.currentTarget.parentElement.querySelector("input"))}
+          >
+            ${armed ? "Tap again to set" : "Set"}
+          </button>`
+        : ""}
     `;
   }
 
@@ -466,10 +478,6 @@ class CellKeeperSettingsCard extends PackCard {
       }
       .status.failed {
         color: var(--ck-bad);
-      }
-      .confirm {
-        font-size: 12px;
-        color: var(--ck-warn);
       }
       .action {
         padding: 7px 14px;

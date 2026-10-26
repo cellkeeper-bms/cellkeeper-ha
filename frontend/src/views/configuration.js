@@ -322,7 +322,7 @@ export function configurationView(ctx, options = {}) {
         {
           key: "number:soc_set_cmd",
           name: "Set SOC",
-          help: "Overwrites the BMS's SOC estimate, e.g. after a full charge or a capacity test. Enter the value twice to set it.",
+          help: "Overwrites the BMS's SOC estimate, e.g. after a full charge or a capacity test. Type the value, then tap Set twice (or press Enter twice).",
           confirm: true,
         },
       ],

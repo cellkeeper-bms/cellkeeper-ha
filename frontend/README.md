@@ -68,7 +68,7 @@ of what the group does to the pack right now:
 - **Current limits**: every limit that goes into the charge and discharge current, with the one in
   force highlighted, next to your max current settings.
 - **State of charge**: how SOC scaling maps the BMS's SOC onto what the inverter sees, the
-  voltage-based and coulomb-count estimates and the charge counter, and Set SOC (asks twice).
+  voltage-based and coulomb-count estimates and the charge counter, and Set SOC (type the value, then tap Set twice or press Enter twice).
 - **Balancing**: the firmware's conditions as a checklist, so you can see why it is or isn't
   balancing.
 - **Balance charge** (HMI firmware with it): the schedule on a 24 h strip and the float and
