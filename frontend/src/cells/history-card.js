@@ -17,6 +17,7 @@ import {
 //   height: auto      heatmap height in px; auto fills the window below the card's other parts
 //   height_3d: auto   the same for the 3D view
 //   lines: true       3D: SOC, power and spread as lines on the back wall (the Lines button)
+//   lines_wall: back  ... or on the front wall, in front of the surface (back or front)
 //
 // Every cell's voltage over time as a heatmap drawn on a canvas from one statistics request,
 // balancing cells optionally marked, the spread between the highest and lowest cell underneath, and a
@@ -94,6 +95,7 @@ class CellKeeperCellHistoryCard extends PackCard {
     _mode: { state: true },
     _marks: { state: true },
     _lines3d: { state: true },
+    _wallFront: { state: true },
     _view: { state: true },
     _status3d: { state: true },
     _data: { state: true },
@@ -112,6 +114,7 @@ class CellKeeperCellHistoryCard extends PackCard {
     this._view = ["2d", "3d"].includes(saved.view) ? saved.view : this._config.view;
     this._marks = typeof saved.balancing === "boolean" ? saved.balancing : !!this._config.balancing;
     this._lines3d = typeof saved.lines === "boolean" ? saved.lines : this._config.lines !== false;
+    this._wallFront = (saved.lines_wall ?? this._config.lines_wall) === "front";
     // Where the viewer last turned the 3D view, kept through 2D/3D switches and visits.
     this._camera = saved.camera;
   }
@@ -243,7 +246,7 @@ class CellKeeperCellHistoryCard extends PackCard {
       fresh = true;
     }
     if (fresh || changed.has("_width") || changed.has("_height")) this._gl.setSize(canvas.clientWidth, canvas.clientHeight);
-    if ((fresh || changed.has("_data") || changed.has("_mode") || changed.has("_lines3d")) && this._data?.cols > 1) {
+    if ((fresh || changed.has("_data") || changed.has("_mode") || changed.has("_lines3d") || changed.has("_wallFront")) && this._data?.cols > 1) {
       this._gl.ink = rgbOf(getComputedStyle(this).getPropertyValue("--primary-text-color").trim());
       this._gl.setData(this._grid3d());
       this.requestUpdate();
@@ -319,7 +322,12 @@ class CellKeeperCellHistoryCard extends PackCard {
     const spread = Float32Array.from(d.hi, (v, k) => (v - d.lo[k]) * 1000);
     const peak = Math.max(5, ...[...spread].filter((v) => !Number.isNaN(v)));
     wall.push({ values: spread, lo: 0, hi: peak, color: color("--secondary-text-color", "#888888") });
-    return { wall, soc: d.soc, ...soc, spreadPeak: peak };
+    return { wall, wallFront: this._wallFront, soc: d.soc, ...soc, spreadPeak: peak };
+  }
+
+  _setWall(front) {
+    this._wallFront = front;
+    remember({ lines_wall: front ? "front" : "back" });
   }
 
   _toggleLines() {
@@ -368,7 +376,7 @@ class CellKeeperCellHistoryCard extends PackCard {
         ${this._ramp()}
         ${this._lines3d && d?.cols > 1
           ? html`<span class="walllegend">
-              Back wall:
+              ${this._wallFront ? "Front" : "Back"} wall:
               ${d.soc ? html`<span><i class="socsw"></i>SOC ${this._socScale().socLo}–${this._socScale().socHi} %</span>` : ""}
               ${d.power
                 ? html`<span><i class="socsw" style="background:var(--ck-charge)"></i><i class="socsw" style="background:var(--ck-discharge)"></i>Power,
@@ -670,8 +678,17 @@ class CellKeeperCellHistoryCard extends PackCard {
             </div>
             ${this._view === "3d"
               ? html`<div class="seg">
-                  <button class=${this._lines3d ? "on" : ""} title="SOC, power and spread on the back wall" @click=${() => this._toggleLines()}>Lines</button>
-                </div>`
+                  <button class=${this._lines3d ? "on" : ""} title="SOC, power and spread on a wall" @click=${() => this._toggleLines()}>Lines</button>
+                </div>
+                ${this._lines3d
+                  ? html`<div class="seg">
+                      ${[[false, "Back"], [true, "Front"]].map(
+                        ([front, name]) => html`<button class=${front === this._wallFront ? "on" : ""}
+                          title=${front ? "On the front wall, in front of the surface" : "On the back wall, behind the surface"}
+                          @click=${() => this._setWall(front)}>${name}</button>`
+                      )}
+                    </div>`
+                  : ""}`
               : ""}
             ${this._view === "2d" && Object.keys(this._balancing()).length
               ? html`<div class="seg">

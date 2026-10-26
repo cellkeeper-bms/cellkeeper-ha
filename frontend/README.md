@@ -24,7 +24,8 @@ cell and time under the pointer. Its **3D** button shows the same data, in the s
 can turn and zoom (it keeps where you turned it; a phone starts looking down the time axis), with
 a crosshair and the same readout following the pointer. On its back wall, lines over the same time
 show the BMS's SOC (with its own scale), the pack's power (charging above half height,
-discharging below) and the cells' spread (grey); the **Lines** button hides them. It reads Home
+discharging below) and the cells' spread (grey); **Back** / **Front** moves them to the front wall,
+in front of the surface, and the **Lines** button hides them. It reads Home
 Assistant's 5-minute and hourly statistics for all cells in one request instead of every cell's raw
 history, so 24 h opens in about a second, in 2D or 3D. Both fill the window's height.
 
@@ -244,7 +245,7 @@ dashboards:
 - `custom:cellkeeper-pack-card`, `custom:cellkeeper-cells-card`: the Overview's pack and cell
   cards. Option: `prefix`.
 - `custom:cellkeeper-cell-history-card`: the Cell History view. Options: `prefix`, `range` (`6h`,
-  `24h`, `7d`, `30d`), `mode` (`voltage`, `deviation`), `balancing` (mark balancing cells), `lines` (3D back-wall lines, default on), `view`
+  `24h`, `7d`, `30d`), `mode` (`voltage`, `deviation`), `balancing` (mark balancing cells), `lines` (3D wall lines, default on), `lines_wall` (`back`, `front`), `view`
   (`2d`, `3d`), `height` and `height_3d` (px; by default they fill the window). The viewer's last
   choices override these.
 - `custom:cellkeeper-stat-card`: the Overview's small cards. Options: `prefix`, `kind`

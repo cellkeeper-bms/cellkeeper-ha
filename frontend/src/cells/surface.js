@@ -417,7 +417,8 @@ export class Surface3D {
   _wall(mvp, sy) {
     const gl = this.gl;
     const { wall, cols } = this.grid;
-    const y = -sy * AY * 0.995;
+    // The wall behind the surface (from where the camera is), or the one in front with wallFront.
+    const y = this._wallY(sy) * 0.995;
     const h = 0.004;
     const zOf = (line, v) => AZ * Math.min(1, Math.max(0, (v - line.lo) / (line.hi - line.lo || 1)));
     const quad = (out, x0, z0, x1, z1, c) => {
@@ -465,6 +466,10 @@ export class Surface3D {
     gl.disable(gl.DEPTH_TEST);
     this._lines(mvp, dots, gl.POINTS, 8 * dpr);
     gl.enable(gl.DEPTH_TEST);
+  }
+
+  _wallY(sy) {
+    return (this.grid.wallFront ? sy : -sy) * AY;
   }
 
   _socZ(v) {
@@ -523,16 +528,21 @@ export class Surface3D {
     put([0, sy * (AY + 0.22), 0], titles.x, "title");
     put([sx * (AX + 0.22), 0, 0], titles.y, "title");
     put([-fx, sy * AY, AZ + 0.08], titles.z, "title");
-    // The power line's zero, at the back wall's other end.
+    // The power line's zero: at the back wall's far end, or on the front wall just inside its
+    // left end, clear of the voltage labels there.
+    const wy = this._wallY(sy);
     const power = this.grid.wall?.find((l) => l.zero);
-    if (power) put([-fx, -sy * AY, AZ * ((0 - power.lo) / (power.hi - power.lo || 1))], "0 W", "pwr");
-    // SOC's own scale, up the back wall's far corner.
+    if (power) {
+      const z = AZ * ((0 - power.lo) / (power.hi - power.lo || 1));
+      put(this.grid.wallFront ? [-sx * AX * 0.9, wy, z + 0.03] : [-fx, wy, z], "0 W", "pwr");
+    }
+    // SOC's own scale, up the wall's corner on the cell numbers' side.
     if (this.grid.soc) {
       // Not at the floor, where the cell numbers end.
       for (const t of this.grid.socTicks ?? []) {
-        if (this._socZ(t.v) > AZ * 0.05) put([fx, -sy * AY, this._socZ(t.v)], t.text, "soc");
+        if (this._socZ(t.v) > AZ * 0.05) put([fx, wy, this._socZ(t.v)], t.text, "soc");
       }
-      put([fx, -sy * AY, AZ + 0.08], titles.soc, "title soc");
+      put([fx, wy, AZ + 0.08], titles.soc, "title soc");
     }
     const el = this.labelsEl;
     while (el.children.length < items.length) el.appendChild(document.createElement("span"));
