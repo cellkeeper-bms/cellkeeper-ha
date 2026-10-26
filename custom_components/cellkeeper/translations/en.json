@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "CellKeeper",
+        "description": "Keeps a long-term history of your CellKeeper packs, apart from the recorder's 10 days.\n\nPacks found: {packs}"
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "CellKeeper is already set up; it logs every pack it finds."
+    }
+  }
+}

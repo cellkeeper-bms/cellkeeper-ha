@@ -1,0 +1,15 @@
+{
+  "domain": "cellkeeper",
+  "name": "CellKeeper",
+  "after_dependencies": ["backup", "esphome"],
+  "codeowners": ["@clowrey"],
+  "config_flow": true,
+  "dependencies": ["recorder", "websocket_api"],
+  "documentation": "https://github.com/clowrey/CellKeeper-HA",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/clowrey/CellKeeper-HA/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "0.1.0"
+}
