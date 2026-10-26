@@ -411,9 +411,12 @@ class CellKeeperSystemCard extends PackCard {
     const a = up?.attributes ?? {};
     const installed = a.installed_version;
     const latest = a.latest_version;
-    // The version installed when this page loaded: if HACS installs another, the page needs a reload.
+    // The version installed when this page loaded: if HACS installs another, Home Assistant needs a
+    // restart (the dashboard comes with the integration), and then the page a reload.
     if (installed && this._installedAtLoad === undefined) this._installedAtLoad = installed;
     const updated = installed && this._installedAtLoad && installed !== this._installedAtLoad;
+    // Restarted since, but this page still runs the version it loaded with.
+    const stale = !updated && installed && RUNNING_VERSION && !sameVersion(installed, RUNNING_VERSION);
     const busy = a.in_progress === true || typeof a.in_progress === "number" || this._installing;
     if (this._installing && (updated || up?.state === "off")) this._installing = false;
     const available = up?.state === "on" && !updated;
@@ -432,7 +435,7 @@ class CellKeeperSystemCard extends PackCard {
           <ha-icon icon="mdi:view-dashboard-outline"></ha-icon>
           <div>
             <div class="dname">Dashboard</div>
-            <div class="dsub">CellKeeper Dashboard${up ? " · HACS" : ""}</div>
+            <div class="dsub">With the CellKeeper integration${up ? " · HACS" : ""}</div>
           </div>
         </div>
         <div class="facts">
@@ -441,14 +444,14 @@ class CellKeeperSystemCard extends PackCard {
             ${available
               ? html`<i class="tag info">${latest} available</i>`
               : updated
-                ? html`<i class="tag info">updated, reload to use it</i>`
-                : up
+                ? html`<i class="tag info">updated, restart Home Assistant to use it</i>`
+                : stale
+                  ? html`<i class="tag info">reload to use it</i>`
+                  : up
                   ? html`<i class="tag good">up to date</i>`
                   : ""}
           </div>
-          ${installed && RUNNING_VERSION && !sameVersion(installed, RUNNING_VERSION) && !updated
-            ? html`<div><span></span><i class="dim">this page runs v${RUNNING_VERSION}</i></div>`
-            : ""}
+          ${stale ? html`<div><span></span><i class="dim">this page runs v${RUNNING_VERSION}</i></div>` : ""}
           ${!up ? html`<div><span></span><i class="dim">Not installed through HACS, so there's no update check.</i></div>` : ""}
         </div>
         ${up
@@ -459,10 +462,14 @@ class CellKeeperSystemCard extends PackCard {
                   </button>`
                 : ""}
               ${updated
-                ? html`<button class="act primary" @click=${() => location.reload()}>
-                    <ha-icon icon="mdi:refresh"></ha-icon>Reload
+                ? html`<button class="act primary" @click=${() => this.hass.callService("homeassistant", "restart")}>
+                    <ha-icon icon="mdi:restart"></ha-icon>Restart Home Assistant
                   </button>`
-                : ""}
+                : stale
+                  ? html`<button class="act primary" @click=${() => location.reload()}>
+                      <ha-icon icon="mdi:refresh"></ha-icon>Reload
+                    </button>`
+                  : ""}
               <button class="act" @click=${() => this.moreInfo(up.entity_id)}>
                 <ha-icon icon="mdi:text-box-outline"></ha-icon>Release notes
               </button>

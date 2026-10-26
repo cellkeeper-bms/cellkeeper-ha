@@ -1,14 +1,18 @@
 import * as esbuild from "esbuild";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
-const { version } = JSON.parse(readFileSync("package.json", "utf8"));
+// One version for the integration and its dashboard: the integration's manifest.
+const { version } = JSON.parse(readFileSync("../custom_components/cellkeeper/manifest.json", "utf8"));
 
 // `--dev` builds a test copy that can load beside the release: every card is renamed
 // (cellkeeper-pack-card -> cellkeeper-dev-pack-card) and the strategy is custom:cellkeeper-dev,
 // so a dashboard with `strategy: {type: custom:cellkeeper-dev}` always runs this build, and the
 // release's dashboards never do. It goes to dist-dev/, which isn't committed.
+//
+// The release build goes into the integration, which serves it on every page; it's committed,
+// since HACS installs the repository as it is.
 const dev = process.argv.includes("--dev");
-const outfile = dev ? "dist-dev/cellkeeper-dashboard-dev.js" : "dist/cellkeeper-dashboard.js";
+const outfile = dev ? "dist-dev/cellkeeper-dashboard-dev.js" : "../custom_components/cellkeeper/frontend/cellkeeper-dashboard.js";
 const shown = dev ? `${version}-dev` : version;
 
 const options = {
@@ -19,7 +23,7 @@ const options = {
   target: "es2021",
   minify: true,
   legalComments: "none",
-  banner: { js: `/* CellKeeper Dashboard ${shown} - https://github.com/clowrey/CellKeeper-Dashboard */` },
+  banner: { js: `/* CellKeeper Dashboard ${shown} - https://github.com/clowrey/CellKeeper-HA */` },
   define: { __VERSION__: JSON.stringify(shown) },
 };
 

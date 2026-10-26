@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_LOGO = HERE.parent.parent / "CellKeeper-BMS-PCB" / "enclosure" / "cellkeeper_logo.json"
+DEFAULT_LOGO = HERE.parent.parent.parent / "CellKeeper-BMS-PCB" / "enclosure" / "cellkeeper_logo.json"
 
 # Logo shapes by index (see extract_logo.py's output order): battery outline, arrow, bars.
 LEFT = [23, 13, 6, 15, 9]          # 3 bars, arrow

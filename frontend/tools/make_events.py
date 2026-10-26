@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-GITHUB = HERE.parent.parent
+GITHUB = HERE.parent.parent.parent  # the folder with the CellKeeper repositories
 YAML = Path(sys.argv[1]) if len(sys.argv) > 1 else GITHUB / "CellKeeper-BMS-LCD" / "bms_core.yaml"
 EVENTS_H = Path(sys.argv[2]) if len(sys.argv) > 2 else GITHUB / "bmstest1" / "bms" / "sys" / "events" / "events.h"
 LIMITS_H = EVENTS_H.parent.parent.parent / "config" / "limits.h"

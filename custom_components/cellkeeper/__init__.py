@@ -1,7 +1,8 @@
-"""CellKeeper: a long-term history of CellKeeper BMS packs, kept apart from the recorder.
+"""CellKeeper: the CellKeeper BMS dashboard, and a long-term history of its packs.
 
-Phase 1 keeps every event occurrence (from the HMI's event sensors) in its own SQLite database, so
-it outlives the recorder's 10 days. The dashboard reads it over the websocket API.
+It serves the dashboard (the custom:cellkeeper strategy, frontend.py) on every page, and keeps
+every event occurrence (from the HMI's event sensors) in its own SQLite database, so it outlives
+the recorder's 10 days. The dashboard reads that over the websocket API.
 """
 
 from __future__ import annotations
@@ -18,10 +19,12 @@ from homeassistant.helpers import config_validation as cv, entity_registry as er
 from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.loader import async_get_integration
 from homeassistant.util import dt as dt_util
 
 from .const import DB_DIR, DB_FILE, DOMAIN
 from .discovery import find_packs
+from .frontend import async_check_old_install, async_remove_frontend, async_setup_frontend
 from .pack import PackLogger
 from .runtime import Runtime
 from .store import Store
@@ -50,6 +53,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: CellKeeperConfigEntry) -
     await runtime.async_load()
     entry.runtime_data = runtime
     hass.data[DOMAIN] = runtime
+
+    # The dashboard, on every page from now on.
+    version = (await async_get_integration(hass, DOMAIN)).version
+    url = await async_setup_frontend(hass, str(version))
+    entry.async_on_unload(lambda: async_remove_frontend(hass, url))
+    entry.async_create_background_task(hass, async_check_old_install(hass), "cellkeeper old dashboard check")
 
     async def start_packs() -> None:
         # The recorder's history is read on the first start, so wait until it can be.
