@@ -7,6 +7,9 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.recorder import get_instance, history
+from homeassistant.components.recorder.db_schema import RecorderRuns
+from homeassistant.components.recorder.models import process_timestamp
+from homeassistant.components.recorder.util import session_scope
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, State, callback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.util import dt as dt_util
@@ -18,6 +21,17 @@ if TYPE_CHECKING:
     from .runtime import Runtime
 
 _LOGGER = logging.getLogger(__name__)
+
+# The HMI's entities are unavailable for a moment while Home Assistant starts. An outage that
+# begins this soon after a start and lasts no longer is Home Assistant's, not the HMI's.
+HA_START_S = 120
+
+
+def ha_starts(hass: HomeAssistant, since: datetime) -> list[float]:
+    """When Home Assistant started since `since` (the recorder's runs), oldest first."""
+    with session_scope(hass=hass, read_only=True) as session:
+        rows = session.query(RecorderRuns.start).filter(RecorderRuns.start >= since).all()
+    return sorted(process_timestamp(r[0]).timestamp() for r in rows)
 
 
 class PackLogger:
@@ -33,7 +47,9 @@ class PackLogger:
         self._buffer: list[State] = []
         # Whether the HMI is connected, from its presence sensor.
         self._offline_since: float | None = None
+        self._offline_at_start = False  # the outage began as Home Assistant started
         self._presence_known = False
+        self._starts: list[float] = []
 
     @property
     def prefix(self) -> str:
@@ -56,6 +72,7 @@ class PackLogger:
         presence = saved.get("_presence")
         if presence:
             self._offline_since = presence.get("offline_since")
+            self._offline_at_start = bool(presence.get("at_start"))
             self._presence_known = True
 
         # Listen first and hold live states until the catch-up is done, so none fall between.
@@ -96,6 +113,15 @@ class PackLogger:
             for tracker in self.trackers.values():
                 if tracker.prev is not None and tracker.gap_since is None:
                     tracker.gap_since = synced
+
+        try:
+            self._starts = await recorder.async_add_executor_job(ha_starts, self.hass, start)
+        except Exception:  # an older or newer recorder schema: just no "started" markers
+            _LOGGER.debug("Couldn't read Home Assistant's start times", exc_info=True)
+            self._starts = [recorder.recorder_runs_manager.recording_start.timestamp()]
+        for t in self._starts:
+            if t > start.timestamp():
+                markers.append((t, "ha_started", None))
 
         states = await recorder.async_add_executor_job(
             lambda: history.get_significant_states(
@@ -172,16 +198,27 @@ class PackLogger:
         return self.trackers[key].feed(t, state)
 
     def _presence(self, t: float, state: str, markers: list[tuple[float, str, str | None]]) -> None:
-        """HMI offline and back online, from the presence sensor going unavailable."""
+        """HMI offline and back online, from the presence sensor going unavailable.
+
+        An outage that starts as Home Assistant starts is only the HMI's if it goes on longer
+        than Home Assistant takes to connect: its "offline" marker is added when it's over.
+        """
         if parse_state(state) is None:
             if self._offline_since is None and self._presence_known:
                 self._offline_since = t
-                markers.append((t, "hmi_offline", None))
+                self._offline_at_start = any(0 <= t - s <= HA_START_S for s in self._starts)
+                if not self._offline_at_start:
+                    markers.append((t, "hmi_offline", None))
         else:
-            if self._offline_since is not None and t > self._offline_since:
-                markers.append((t, "hmi_online", None))
+            if self._offline_since is not None and t >= self._offline_since:
+                if not self._offline_at_start:
+                    markers.append((t, "hmi_online", None))
+                elif t - self._offline_since > HA_START_S:
+                    markers.append((self._offline_since, "hmi_offline", None))
+                    markers.append((t, "hmi_online", None))
                 self._offline_since = None
+                self._offline_at_start = False
             self._presence_known = True
 
     def _presence_snapshot(self) -> dict[str, Any]:
-        return {"offline_since": self._offline_since}
+        return {"offline_since": self._offline_since, "at_start": self._offline_at_start}

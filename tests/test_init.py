@@ -4,6 +4,7 @@ websocket API and backups."""
 from __future__ import annotations
 
 from datetime import timedelta
+from unittest.mock import patch
 
 from freezegun.api import FrozenDateTimeFactory
 import pytest
@@ -121,7 +122,7 @@ async def test_catch_up_live_and_websocket(
     assert row["raised_at"] == pytest.approx(raised_at, abs=1)
     assert row["cleared_at"] - row["raised_at"] == pytest.approx(240, abs=1)
     assert row["time_known"]
-    assert [m["kind"] for m in result["markers"]] == ["logging_started"]
+    assert [m["kind"] for m in result["markers"]] == ["ha_started", "logging_started"]
 
     # Live, with a subscriber.
     client = await hass_ws_client()
@@ -224,9 +225,40 @@ async def test_hmi_offline_markers(
     await settle(hass)
 
     result = await ws(hass_ws_client, {"type": "cellkeeper/events/list", "prefix": "ck0"})
-    assert [m["kind"] for m in result["markers"]] == ["hmi_online", "hmi_offline", "logging_started"]
+    kinds = [m["kind"] for m in result["markers"]]
+    # The test's Home Assistant started just before: an outage that long is still the HMI's.
+    assert kinds == ["hmi_online", "hmi_offline", "ha_started", "logging_started"]
     row = result["occurrences"][0]
     assert not row["time_known"] and row["raised_after"] is not None
+
+
+async def test_ha_start_is_not_an_hmi_outage(
+    env, hass: HomeAssistant, pack, hass_ws_client, freezer: FrozenDateTimeFactory
+) -> None:
+    set_all(hass)
+    await async_wait_recording_done(hass)
+    entry = await setup(hass)
+    # Logged in before the clock jumps an hour (the test login expires sooner).
+    client = await hass_ws_client()
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await settle(hass)
+
+    # Home Assistant restarts: the HMI's entities are unavailable for a moment while it connects.
+    freezer.tick(timedelta(hours=1))
+    started = dt_util.utcnow()
+    get_instance(hass).recorder_runs_manager._recording_start = started
+    with patch("custom_components.cellkeeper.pack.ha_starts", return_value=[started.timestamp()]):
+        freezer.tick(timedelta(seconds=2))
+        set_all(hass, "unavailable")
+        freezer.tick(timedelta(seconds=3))
+        set_all(hass)
+        await async_wait_recording_done(hass)
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await settle(hass)
+    result = await ask(client, {"type": "cellkeeper/events/list", "prefix": "ck0"})
+    kinds = [m["kind"] for m in result["markers"]]
+    assert "hmi_offline" not in kinds and kinds[0] == "ha_started"
+    assert result["markers"][0]["t"] == pytest.approx(started.timestamp(), abs=1)
 
 
 async def test_backup_holds_writes(

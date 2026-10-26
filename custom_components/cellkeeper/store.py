@@ -59,7 +59,7 @@ MIGRATIONS: list[str] = [
         id INTEGER PRIMARY KEY,
         prefix TEXT NOT NULL,
         t REAL NOT NULL,
-        kind TEXT NOT NULL,           -- hmi_offline, hmi_online, logging_started
+        kind TEXT NOT NULL,           -- hmi_offline, hmi_online, ha_started, logging_started
         text TEXT
     );
     CREATE INDEX markers_pack_time ON markers (prefix, t);

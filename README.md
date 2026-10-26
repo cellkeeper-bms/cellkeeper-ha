@@ -48,7 +48,7 @@ The `kind` of a row is one of:
 
 Repeats within 10 minutes of each other fold into one row.
 
-**Markers.** The database also keeps markers: `hmi_offline`, `hmi_online` and `logging_started`.
+**Markers.** The database also keeps markers: `hmi_offline` and `hmi_online`, `ha_started` (from the recorder's runs), and `logging_started`. The HMI's entities are unavailable for a moment while Home Assistant starts; that isn't counted as an HMI outage.
 
 ## Websocket API
 
