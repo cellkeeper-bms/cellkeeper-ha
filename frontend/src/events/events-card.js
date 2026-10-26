@@ -8,10 +8,13 @@ import { LEVELS, LEVEL_COLORS, LEVEL_ICONS, PREVIOUS_COLOR, packEvents, escalati
 //   prefix: ck0
 //   mode: status | log | catalog
 //   days: 10          (log) how far back to read Home Assistant's history
+//   range: 90d        (log, with the CellKeeper integration) 10d, 90d, 1y or all to start with
 //
 // status:  what is wrong right now, how bad, since when and what happens next.
-// log:     every event raised, escalated and cleared, from Home Assistant's history of the event
-//          sensors, with BMS starts and HMI outages, newest first.
+// log:     every event raised, escalated and cleared, with BMS starts and HMI outages, newest
+//          first. With the CellKeeper integration installed it comes from the integration's own
+//          database, which keeps it for years; without it, from Home Assistant's history of the
+//          event sensors (10 days by default).
 // catalog: every event the firmware knows: what it means, how it starts and escalates, and its
 //          count since the BMS started.
 
@@ -114,7 +117,93 @@ function buildLog(history, events, bootKey) {
   return out;
 }
 
-const historyCache = new Map(); // prefix -> { at, promise }
+// ---- log from the CellKeeper integration ----
+
+// How far back the log reads from the integration, in days (0: everything it has).
+const STORE_RANGES = { "10d": 10, "90d": 90, "1y": 365, all: 0 };
+const STORE_RANGE_NAMES = { "10d": "10 d", "90d": "90 d", "1y": "1 y", all: "All" };
+const STORE_RANGE_TEXT = { "10d": "in the last 10 days", "90d": "in the last 90 days", "1y": "in the last year", all: "since the log began" };
+const RANGE_KEY = "cellkeeper-events";
+
+function rememberedRange() {
+  try {
+    return JSON.parse(localStorage.getItem(RANGE_KEY))?.range;
+  } catch {
+    return undefined;
+  }
+}
+
+function rememberRange(range) {
+  try {
+    localStorage.setItem(RANGE_KEY, JSON.stringify({ range }));
+  } catch {
+    // Not remembered (private window, storage blocked).
+  }
+}
+
+// The integration's occurrences and markers as the same log entries buildLog makes. A row whose
+// time isn't known (it happened while the HMI or Home Assistant was away) carries `after`: it
+// happened between then and when it was seen (null: before the log began).
+function storeLog(result, events, bootKey) {
+  const byKey = Object.fromEntries(events.map((e) => [e.key, e]));
+  const rows = [];
+  for (const o of result.occurrences) {
+    const e = byKey[o.event] ?? { key: o.event, name: o.event, level: o.start_level ?? "INFO", desc: "" };
+    const t = o.raised_at * 1000;
+    const after = o.time_known ? undefined : o.raised_after ? o.raised_after * 1000 : null;
+    const level = o.start_level ?? o.level ?? e.level;
+    if (e.key === bootKey && o.kind === "raised") {
+      rows.push({ t, kind: "boot", text: "BMS started", after });
+      continue;
+    }
+    if (o.kind === "again") {
+      rows.push({
+        t: o.last_at * 1000, e, level, count: o.count_to, again: true, after, n: o.n, from: o.count_from + 1,
+        text: o.n > 1 ? `Happened ${o.n} more times` : "Happened again",
+      });
+      continue;
+    }
+    if (o.kind === "between") {
+      rows.push({
+        t: o.last_at * 1000, e, level, count: o.count_to, cleared: true, after, n: o.n, from: o.count_from + 1,
+        text: o.n > 1 ? `Raised and cleared ${o.n} times between readings` : "Raised and cleared between readings",
+      });
+      continue;
+    }
+    rows.push({
+      t, e, level, count: o.count_to, after,
+      text: o.kind === "active" ? "Already active when the log began" : "Raised",
+    });
+    if (o.escalated_at) {
+      rows.push({ t: o.escalated_at * 1000, e, level: o.level, count: o.count_to, text: `Escalated to ${o.level.toLowerCase()}` });
+    }
+    if (o.cleared_at) {
+      const reset = o.clear === "bms_restart";
+      const took = o.time_known && !o.cleared_after ? span((o.cleared_at - o.raised_at) * 1000) : "";
+      rows.push({
+        t: o.cleared_at * 1000, e, level: o.level, count: o.count_to, cleared: true, reset,
+        after: o.cleared_after ? o.cleared_after * 1000 : undefined,
+        text: reset ? "Gone after a BMS restart" : took ? `Cleared after ${took}` : o.time_known ? "Cleared within a minute" : "Cleared",
+      });
+    }
+  }
+  // Markers, oldest first so each "back online" finds its "offline".
+  let offline;
+  for (const m of [...result.markers].sort((a, b) => a.t - b.t)) {
+    const t = m.t * 1000;
+    if (m.kind === "hmi_offline") offline = t;
+    else if (m.kind === "hmi_online") {
+      const off = offline !== undefined ? span(t - offline) : "";
+      rows.push({ t, kind: "hmi", text: off ? `HMI back online after ${off}` : "HMI reconnected" });
+      offline = undefined;
+    } else if (m.kind === "ha_started") rows.push({ t, kind: "ha", text: "Home Assistant started" });
+    else if (m.kind === "logging_started") rows.push({ t, kind: "start", text: "The CellKeeper log begins" });
+  }
+  if (offline !== undefined) rows.push({ t: offline, kind: "hmi", text: "HMI offline" });
+  return rows.sort((a, b) => b.t - a.t);
+}
+
+const historyCache = new Map(); // prefix (and range) -> { at, promise }
 
 class CellKeeperEventsCard extends PackCard {
   static properties = {
@@ -125,6 +214,7 @@ class CellKeeperEventsCard extends PackCard {
     _filter: { state: true },
     _open: { state: true },
     _areas: { state: true },
+    _range: { state: true },
   };
 
   constructor() {
@@ -137,7 +227,21 @@ class CellKeeperEventsCard extends PackCard {
   }
 
   setConfig(config) {
-    super.setConfig({ mode: "status", days: 10, ...config });
+    super.setConfig({ mode: "status", days: 10, range: "90d", ...config });
+    const saved = rememberedRange();
+    this._range = saved in STORE_RANGES ? saved : this._config.range in STORE_RANGES ? this._config.range : "90d";
+  }
+
+  // Whether the CellKeeper integration keeps this Home Assistant's event history.
+  get _stored() {
+    return !!this.hass?.config?.components?.includes("cellkeeper");
+  }
+
+  _setRange(range) {
+    this._range = range;
+    rememberRange(range);
+    this._log = undefined;
+    this._loadLog(false);
   }
 
   watched() {
@@ -159,6 +263,29 @@ class CellKeeperEventsCard extends PackCard {
 
   async _loadLog(force) {
     const events = packEvents(this.hass, this.prefix);
+    const bootKey = events.find((e) => /_boot_normal$/.test(e.key))?.key;
+    if (this._stored) {
+      const key = `${this.prefix} ${this._range}`;
+      try {
+        const days = STORE_RANGES[this._range];
+        const hit = historyCache.get(key);
+        let promise = hit?.promise;
+        if (force || !hit || Date.now() - hit.at > 60000) {
+          const msg = { type: "cellkeeper/events/list", prefix: this.prefix, limit: 5000 };
+          if (days) msg.start = Date.now() / 1000 - days * 86400;
+          promise = this.hass.callWS(msg);
+          historyCache.set(key, { at: Date.now(), promise });
+        }
+        const result = await promise;
+        const log = storeLog(result, events, bootKey);
+        log.more = result.more;
+        this._log = log;
+        return;
+      } catch (err) {
+        // The integration isn't running (or doesn't know this pack): Home Assistant's history.
+        historyCache.delete(key);
+      }
+    }
     const hit = historyCache.get(this.prefix);
     let promise = hit?.promise;
     if (force || !hit || Date.now() - hit.at > 60000) {
@@ -176,7 +303,7 @@ class CellKeeperEventsCard extends PackCard {
       historyCache.set(this.prefix, { at: Date.now(), promise });
     }
     try {
-      this._log = buildLog(await promise, events, events.find((e) => /_boot_normal$/.test(e.key))?.key);
+      this._log = buildLog(await promise, events, bootKey);
     } catch (err) {
       this._log = { error: err.message ?? String(err) };
     }
@@ -271,10 +398,18 @@ class CellKeeperEventsCard extends PackCard {
 
   _logView(events) {
     const log = this._log;
+    const stored = this._stored;
+    const range = stored ? STORE_RANGE_TEXT[this._range] : `in the last ${this._config.days} days`;
     const head = html`
       <div class="head">
         <ha-icon icon="mdi:timeline-text-outline"></ha-icon><span class="title">Event log</span>
-        <span class="dim small">last ${this._config.days} days</span>
+        ${stored
+          ? html`<div class="seg" title="Kept by the CellKeeper integration">
+              ${Object.keys(STORE_RANGES).map(
+                (k) => html`<button class=${k === this._range ? "on" : ""} @click=${() => this._setRange(k)}>${STORE_RANGE_NAMES[k]}</button>`
+              )}
+            </div>`
+          : html`<span class="dim small">last ${this._config.days} days</span>`}
         <span class="spacer"></span>
         <button class="pill ${this._showInfo ? "on" : ""}" @click=${() => (this._showInfo = !this._showInfo)}>
           <ha-icon icon=${this._showInfo ? "mdi:checkbox-marked" : "mdi:checkbox-blank-outline"}></ha-icon>Info events
@@ -290,7 +425,7 @@ class CellKeeperEventsCard extends PackCard {
       <div class="wrap">
         ${head}
         ${!rows.length
-          ? html`<div class="empty dim">Nothing ${this._showInfo ? "" : "but info events "}in the last ${this._config.days} days.</div>`
+          ? html`<div class="empty dim">Nothing ${this._showInfo ? "" : "but info events "}${range}.</div>`
           : html`<div class="log">
               ${shown.map((r) => {
                 const day = dayLabel(this.hass, r.t);
@@ -301,6 +436,8 @@ class CellKeeperEventsCard extends PackCard {
             </div>`}
         ${rows.length > shown.length
           ? html`<button class="more" @click=${() => (this._limit += 40)}>Show ${Math.min(40, rows.length - shown.length)} more</button>`
+          : log.more
+          ? html`<div class="empty dim small">That's the newest 5000; pick a shorter range to see older ones.</div>`
           : ""}
       </div>
     `;
@@ -308,20 +445,33 @@ class CellKeeperEventsCard extends PackCard {
 
   _logRow(r) {
     if (r.kind) {
+      const icon = { boot: "mdi:restart", hmi: "mdi:lan-disconnect", ha: "mdi:home-assistant", start: "mdi:database-clock-outline" }[r.kind];
       return html`<div class="lrow sys">
         <span class="t num">${clock(this.hass, r.t)}</span>
-        <ha-icon icon=${r.kind === "boot" ? "mdi:restart" : "mdi:lan-disconnect"}></ha-icon>
-        <span class="ltext"><b>${r.text}</b></span>
+        <ha-icon icon=${icon}></ha-icon>
+        <span class="ltext"><b>${r.text}</b><span class="dim">${this._afterText(r)}</span></span>
       </div>`;
     }
-    const c = r.cleared ? "var(--ck-muted)" : LEVEL_COLORS[r.level];
-    return html`<div class="lrow clickable" style="--c:${c}" @click=${() => this.moreInfo(r.e.id)} title=${r.e.desc}>
+    const c = r.cleared ? "var(--ck-muted)" : LEVEL_COLORS[r.level] ?? "var(--ck-muted)";
+    return html`<div class="lrow ${r.e.id ? "clickable" : ""}" style="--c:${c}" @click=${() => r.e.id && this.moreInfo(r.e.id)} title=${r.e.desc}>
       <span class="t num">${clock(this.hass, r.t)}</span>
-      <ha-icon icon=${r.reset ? "mdi:restart" : r.cleared ? "mdi:check" : LEVEL_ICONS[r.level]}></ha-icon>
+      <ha-icon icon=${r.reset ? "mdi:restart" : r.cleared ? "mdi:check" : LEVEL_ICONS[r.level] ?? "mdi:alert-circle-outline"}></ha-icon>
       <span class="ltext"
-        ><b>${r.e.name}</b> <span class="dim">${r.text}${r.cleared ? "" : html` · ${levelName(r.level)}`}${r.n > 1 ? ` · ×${r.from}–${r.count}` : r.count > 1 ? ` · ×${r.count}` : ""}</span></span
+        ><b>${r.e.name}</b> <span class="dim">${r.text}${r.cleared || !r.level ? "" : html` · ${levelName(r.level)}`}${r.n > 1 ? ` · ×${r.from}–${r.count}` : r.count > 1 ? ` · ×${r.count}` : ""}${this._afterText(r)}</span></span
       >
     </div>`;
+  }
+
+  // " · some time after 14:02" for a row seen only once the HMI or Home Assistant was back.
+  _afterText(r) {
+    if (r.after === undefined) return "";
+    const why = "It happened while the HMI or Home Assistant was away";
+    if (r.after === null) return html` · <span title=${why}>time unknown</span>`;
+    const same = new Date(r.after).toDateString() === new Date(r.t).toDateString();
+    const when = same
+      ? clock(this.hass, r.after)
+      : new Date(r.after).toLocaleString(this.hass.locale?.language, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    return html` · <span title=${why}>some time after ${when}</span>`;
   }
 
   // ---- catalogue ----
@@ -584,6 +734,24 @@ class CellKeeperEventsCard extends PackCard {
         --mdc-icon-size: 16px;
       }
       .pill.on {
+        color: var(--primary-text-color);
+      }
+      .seg {
+        display: inline-flex;
+        border: 1px solid var(--ck-line);
+        border-radius: 14px;
+        overflow: hidden;
+      }
+      .seg button {
+        padding: 3px 9px;
+        border: 0;
+        background: transparent;
+        font-size: 12px;
+        color: var(--ck-muted);
+        cursor: pointer;
+      }
+      .seg button.on {
+        background: var(--ck-line);
         color: var(--primary-text-color);
       }
       .empty {

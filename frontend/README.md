@@ -86,7 +86,10 @@ readable units (V, s) and "Saving…" until the BMS reports the new value back.
   earlier since the BMS started are listed underneath.
 - **Event log**: every event raised, repeated, escalated and cleared over the last 10 days, read
   from Home Assistant's history of the event sensors, with BMS starts and HMI reconnects; bursts
-  of repeats fold into one line. Info events are hidden unless you ask for them.
+  of repeats fold into one line. Info events are hidden unless you ask for them. With the
+  [CellKeeper integration](https://github.com/clowrey/CellKeeper-HA) installed, the log comes from
+  its own database instead and goes back as far as it has kept (10 d, 90 d, 1 y or All), with Home
+  Assistant's own restarts marked.
 - **All events**: the firmware's 61 events grouped by area, with what each means, the level it
   starts at, when it turns fatal, and its count since the BMS started. Searchable.
 
