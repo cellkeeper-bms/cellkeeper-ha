@@ -16,6 +16,7 @@ import {
 //   view: 2d          2d, or 3d: the same data as a surface you can turn
 //   height: auto      heatmap height in px; auto fills the window below the card's other parts
 //   height_3d: auto   the same for the 3D view
+//   lines: true       3D: SOC, power and spread as lines on the back wall (the Lines button)
 //
 // Every cell's voltage over time as a heatmap drawn on a canvas from one statistics request,
 // balancing cells optionally marked, the spread between the highest and lowest cell underneath, and a
@@ -92,6 +93,7 @@ class CellKeeperCellHistoryCard extends PackCard {
     _range: { state: true },
     _mode: { state: true },
     _marks: { state: true },
+    _lines3d: { state: true },
     _view: { state: true },
     _status3d: { state: true },
     _data: { state: true },
@@ -103,12 +105,13 @@ class CellKeeperCellHistoryCard extends PackCard {
   };
 
   setConfig(config) {
-    super.setConfig({ range: "24h", mode: "voltage", balancing: false, view: "2d", height: "auto", height_3d: "auto", ...config });
+    super.setConfig({ range: "24h", mode: "voltage", balancing: false, view: "2d", height: "auto", height_3d: "auto", lines: true, ...config });
     const saved = remembered();
     this._range = RANGES[saved.range] ? saved.range : RANGES[this._config.range] ? this._config.range : "24h";
     this._mode = ["voltage", "deviation"].includes(saved.mode) ? saved.mode : this._config.mode;
     this._view = ["2d", "3d"].includes(saved.view) ? saved.view : this._config.view;
     this._marks = typeof saved.balancing === "boolean" ? saved.balancing : !!this._config.balancing;
+    this._lines3d = typeof saved.lines === "boolean" ? saved.lines : this._config.lines !== false;
     // Where the viewer last turned the 3D view, kept through 2D/3D switches and visits.
     this._camera = saved.camera;
   }
@@ -240,7 +243,7 @@ class CellKeeperCellHistoryCard extends PackCard {
       fresh = true;
     }
     if (fresh || changed.has("_width") || changed.has("_height")) this._gl.setSize(canvas.clientWidth, canvas.clientHeight);
-    if ((fresh || changed.has("_data") || changed.has("_mode")) && this._data?.cols > 1) {
+    if ((fresh || changed.has("_data") || changed.has("_mode") || changed.has("_lines3d")) && this._data?.cols > 1) {
       this._gl.ink = rgbOf(getComputedStyle(this).getPropertyValue("--primary-text-color").trim());
       this._gl.setData(this._grid3d());
       this.requestUpdate();
@@ -294,10 +297,33 @@ class CellKeeperCellHistoryCard extends PackCard {
         text: deviation ? `${v > 0 ? "+" : ""}${fmt(this.hass, v, digits)}` : fmt(this.hass, v, digits),
       })),
       titles: { x: "Time", y: "Cell", z: deviation ? "mV from average" : "V", soc: "SOC" },
-      soc: d.soc,
-      ...this._socScale(),
-      socColor: rgbOf(getComputedStyle(this).getPropertyValue("--primary-color").trim() || "#03a9f4"),
+      ...this._wall3d(),
     };
+  }
+
+  // The lines on the 3D view's back wall, when the Lines button is on: SOC in the primary colour,
+  // power green up (charging) and red down (discharging) around half height, spread in grey.
+  _wall3d() {
+    const d = this._data;
+    if (!this._lines3d) return { wall: [] };
+    const style = getComputedStyle(this);
+    const color = (name, fallback) => rgbOf(style.getPropertyValue(name).trim() || fallback);
+    const wall = [];
+    const soc = d.soc ? this._socScale() : {};
+    if (d.soc) wall.push({ values: d.soc, lo: soc.socLo, hi: soc.socHi, color: color("--primary-color", "#03a9f4") });
+    if (d.power) {
+      const { max } = this._powerScale();
+      wall.push({ values: d.power, lo: -max, hi: max, color: color("--ck-good", "#43a047"), neg: color("--ck-bad", "#db4437"), zero: true });
+    }
+    const spread = Float32Array.from(d.hi, (v, k) => (v - d.lo[k]) * 1000);
+    const peak = Math.max(5, ...[...spread].filter((v) => !Number.isNaN(v)));
+    wall.push({ values: spread, lo: 0, hi: peak, color: color("--secondary-text-color", "#888888") });
+    return { wall, soc: d.soc, ...soc, spreadPeak: peak };
+  }
+
+  _toggleLines() {
+    this._lines3d = !this._lines3d;
+    remember({ lines: this._lines3d });
   }
 
   // The SOC scale on the 3D view's back wall: the range the SOC covered, out to whole 10 %, so
@@ -339,7 +365,17 @@ class CellKeeperCellHistoryCard extends PackCard {
       </div>
       <div class="foot">
         ${this._ramp()}
-        ${d?.soc ? html`<span><i class="socsw"></i>SOC on the back wall</span>` : ""}
+        ${this._lines3d && d?.cols > 1
+          ? html`<span class="walllegend">
+              Back wall:
+              ${d.soc ? html`<span><i class="socsw"></i>SOC ${this._socScale().socLo}–${this._socScale().socHi} %</span>` : ""}
+              ${d.power
+                ? html`<span><i class="socsw" style="background:var(--ck-good)"></i><i class="socsw" style="background:var(--ck-bad)"></i>Power,
+                    0 at half height, ±${this._kw(this._powerScale().max)}</span>`
+                : ""}
+              <span><i class="socsw" style="background:var(--secondary-text-color)"></i>Spread 0–${fmt(this.hass, this._gl?.grid?.spreadPeak ?? 0, 0)} mV</span>
+            </span>`
+          : ""}
         <span class="dim">Drag to turn · scroll or pinch to zoom · double-click or Reset view to start over</span>
       </div>`;
   }
@@ -631,6 +667,11 @@ class CellKeeperCellHistoryCard extends PackCard {
                 ([m, name]) => html`<button class=${m === this._mode ? "on" : ""} @click=${() => this._setMode(m)}>${name}</button>`
               )}
             </div>
+            ${this._view === "3d"
+              ? html`<div class="seg">
+                  <button class=${this._lines3d ? "on" : ""} title="SOC, power and spread on the back wall" @click=${() => this._toggleLines()}>Lines</button>
+                </div>`
+              : ""}
             ${this._view === "2d" && Object.keys(this._balancing()).length
               ? html`<div class="seg">
                   <button class=${this._marks ? "on" : ""} @click=${() => this._toggleMarks()}>Balancing</button>
@@ -967,6 +1008,20 @@ class CellKeeperCellHistoryCard extends PackCard {
       }
       .labels span.soc {
         color: var(--primary-color);
+      }
+      .labels span.pwr {
+        color: var(--secondary-text-color);
+      }
+      .walllegend {
+        display: inline-flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px 12px;
+      }
+      .walllegend > span {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
       }
       .labels span.title {
         font-size: 11px;

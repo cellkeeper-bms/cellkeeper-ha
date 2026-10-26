@@ -315,7 +315,7 @@ export class Surface3D {
     const sy = Math.sign(eye[1] - TARGET[1]) || 1;
     this._lines(mvp, this._grid(sx, sy), gl.LINES);
     this._surface(mvp, eye, false);
-    if (this.grid.soc) this._soc(mvp, sy);
+    if (this.grid.wall?.length) this._wall(mvp, sy);
     if (this.hover) this._crosshair(mvp);
     this._labels(mvp, sx, sy);
   }
@@ -409,38 +409,62 @@ export class Surface3D {
     return out;
   }
 
-  // The BMS's SOC over time as a band on the back wall (socLo at the floor, socHi at the top), drawn
-  // faintly where the surface is in front of it and solid where it isn't; a dot at the hovered time.
-  _soc(mvp, sy) {
+  // Lines over time on the back wall (grid.wall: [{ values, lo, hi, color, neg?, zero? }], each
+  // from lo at the floor to hi at the top): the BMS's SOC, the pack's power, the cells' spread.
+  // A line with `neg` takes that colour below zero, split exactly where it crosses, and `zero`
+  // marks its zero level. Drawn faintly where the surface is in front and solid where it isn't,
+  // with a dot on each at the hovered time.
+  _wall(mvp, sy) {
     const gl = this.gl;
-    const { soc, socColor, cols } = this.grid;
+    const { wall, cols } = this.grid;
     const y = -sy * AY * 0.995;
-    const zOf = (v) => this._socZ(v);
-    const band = (alpha) => {
+    const h = 0.004;
+    const zOf = (line, v) => AZ * Math.min(1, Math.max(0, (v - line.lo) / (line.hi - line.lo || 1)));
+    const quad = (out, x0, z0, x1, z1, c) => {
+      out.push(x0, y, z0 - h, ...c, x1, y, z1 - h, ...c, x1, y, z1 + h, ...c);
+      out.push(x0, y, z0 - h, ...c, x1, y, z1 + h, ...c, x0, y, z0 + h, ...c);
+    };
+    const bands = (alpha) => {
       const out = [];
-      const c = [...socColor, alpha];
-      const h = 0.004;
-      for (let k = 0; k + 1 < cols; k++) {
-        const a = soc[k];
-        const b = soc[k + 1];
-        if (Number.isNaN(a) || Number.isNaN(b)) continue;
-        const [x0, x1, z0, z1] = [this._x(k), this._x(k + 1), zOf(a), zOf(b)];
-        out.push(x0, y, z0 - h, ...c, x1, y, z1 - h, ...c, x1, y, z1 + h, ...c);
-        out.push(x0, y, z0 - h, ...c, x1, y, z1 + h, ...c, x0, y, z0 + h, ...c);
+      for (const line of wall) {
+        const up = [...line.color, alpha];
+        const down = [...(line.neg ?? line.color), alpha];
+        if (line.zero) {
+          const z = zOf(line, 0);
+          quad(out, -AX, z, AX, z, [...this.ink, alpha * 0.3]);
+        }
+        for (let k = 0; k + 1 < cols; k++) {
+          const a = line.values[k];
+          const b = line.values[k + 1];
+          if (Number.isNaN(a) || Number.isNaN(b)) continue;
+          const [x0, x1] = [this._x(k), this._x(k + 1)];
+          if (line.neg && a * b < 0) {
+            const xm = x0 + ((x1 - x0) * a) / (a - b);
+            const zm = zOf(line, 0);
+            quad(out, x0, zOf(line, a), xm, zm, a > 0 ? up : down);
+            quad(out, xm, zm, x1, zOf(line, b), b > 0 ? up : down);
+          } else {
+            quad(out, x0, zOf(line, a), x1, zOf(line, b), (a + b) / 2 >= 0 || !line.neg ? up : down);
+          }
+        }
       }
       return out;
     };
     gl.disable(gl.DEPTH_TEST);
-    this._lines(mvp, band(0.3), gl.TRIANGLES);
+    this._lines(mvp, bands(0.3), gl.TRIANGLES);
     gl.enable(gl.DEPTH_TEST);
-    this._lines(mvp, band(1), gl.TRIANGLES);
+    this._lines(mvp, bands(1), gl.TRIANGLES);
     const k = this.hover?.k;
-    if (k !== undefined && !Number.isNaN(soc[k])) {
-      const dpr = window.devicePixelRatio || 1;
-      gl.disable(gl.DEPTH_TEST);
-      this._lines(mvp, [this._x(k), y, zOf(soc[k]), ...socColor, 1], gl.POINTS, 8 * dpr);
-      gl.enable(gl.DEPTH_TEST);
+    if (k === undefined) return;
+    const dpr = window.devicePixelRatio || 1;
+    const dots = [];
+    for (const line of wall) {
+      const v = line.values[k];
+      if (!Number.isNaN(v)) dots.push(this._x(k), y, zOf(line, v), ...(v < 0 && line.neg ? line.neg : line.color), 1);
     }
+    gl.disable(gl.DEPTH_TEST);
+    this._lines(mvp, dots, gl.POINTS, 8 * dpr);
+    gl.enable(gl.DEPTH_TEST);
   }
 
   _socZ(v) {
@@ -499,6 +523,9 @@ export class Surface3D {
     put([0, sy * (AY + 0.22), 0], titles.x, "title");
     put([sx * (AX + 0.22), 0, 0], titles.y, "title");
     put([-fx, sy * AY, AZ + 0.08], titles.z, "title");
+    // The power line's zero, at the back wall's other end.
+    const power = this.grid.wall?.find((l) => l.zero);
+    if (power) put([-fx, -sy * AY, AZ * ((0 - power.lo) / (power.hi - power.lo || 1))], "0 W", "pwr");
     // SOC's own scale, up the back wall's far corner.
     if (this.grid.soc) {
       // Not at the floor, where the cell numbers end.
