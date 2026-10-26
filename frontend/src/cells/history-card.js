@@ -1,0 +1,1058 @@
+import { html, css, nothing } from "lit";
+import { keyed } from "lit/directives/keyed.js";
+import { PackCard, baseStyles, fmt } from "../overview/base.js";
+import { define } from "../context.js";
+import { Surface3D } from "./surface.js";
+import {
+  RANGES, REFRESH_MS, VOLTAGE_STOPS, balanceMarks, colorTable, columnStats, fetchBalancing, fetchCellHistory, fetchSeries,
+  packCells, percentile,
+} from "./history.js";
+
+// custom:cellkeeper-cell-history-card
+//   prefix: ck0
+//   range: 24h        6h, 24h, 7d or 30d to start with (the last one picked is remembered)
+//   mode: voltage     voltage, or deviation: each cell against the pack's average at the time
+//   balancing: false  mark balancing cells to start with
+//   view: 2d          2d, or 3d: the same data as a surface you can turn
+//   height: auto      heatmap height in px; auto fills the window below the card's other parts
+//   height_3d: auto   the same for the 3D view
+//   lines: true       3D: SOC, power and spread as lines on the back wall (the Lines button)
+//   lines_wall: back  ... or on the front wall, in front of the surface (back or front)
+//
+// Every cell's voltage over time as a heatmap drawn on a canvas from one statistics request,
+// balancing cells optionally marked, the spread between the highest and lowest cell underneath, and a
+// readout of the cell and time under the pointer. Refreshes every 5 minutes. The 3D view shows
+// the same data as a surface you can turn.
+
+const BALANCE = "#FDD835";
+const BALANCE_ACTIVE = "#FF9800";
+// Below the average teal, above it pink.
+const DEVIATION_STOPS = (dark) => ["#00695c", "#4db6ac", dark ? "#2b2b2b" : "#eeeeee", "#f06292", "#ad1457"];
+const STORE = "cellkeeper-cell-history";
+// Room the rest of the page takes around each view's plot (toolbar, card header, axis, spread
+// strip, footer), so that "auto" fills the window without scrolling.
+const AROUND_2D = 370;
+const AROUND_3D = 175;
+
+function remembered() {
+  try {
+    return JSON.parse(localStorage.getItem(STORE)) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+function remember(values) {
+  try {
+    localStorage.setItem(STORE, JSON.stringify({ ...remembered(), ...values }));
+  } catch {
+    // Storage blocked: the choice lasts until the page reloads.
+  }
+}
+
+// Round tick values between lo and hi, about n of them: { ticks, digits } (decimals they need).
+function niceTicks(lo, hi, n = 5) {
+  const raw = (hi - lo) / n || 1;
+  const pow = 10 ** Math.floor(Math.log10(raw));
+  const f = raw / pow;
+  const step = (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * pow;
+  const ticks = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + step * 1e-6; v += step) ticks.push(Math.round(v / step) * step);
+  return { ticks, digits: Math.max(0, -Math.floor(Math.log10(step) + 1e-9)) };
+}
+
+// A CSS colour as [r, g, b] 0..1, via the canvas's own colour parsing.
+function rgbOf(color) {
+  const g = document.createElement("canvas").getContext("2d");
+  g.fillStyle = "#808080";
+  g.fillStyle = color || "#808080";
+  const c = g.fillStyle;
+  const nums = c.startsWith("#")
+    ? [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16))
+    : c.match(/[\d.]+/g).slice(0, 3).map(Number);
+  return nums.map((v) => v / 255);
+}
+
+// Time axis ticks on whole hours or local midnights.
+function timeTicks(t0, t1, hours) {
+  const stepH = hours <= 6 ? 1 : hours <= 24 ? 3 : hours <= 168 ? 24 : 24 * 5;
+  const d = new Date(t0);
+  if (stepH < 24) d.setMinutes(0, 0, 0);
+  else d.setHours(0, 0, 0, 0);
+  const ticks = [];
+  for (; d.getTime() <= t1; stepH < 24 ? d.setHours(d.getHours() + 1) : d.setDate(d.getDate() + 1)) {
+    const t = d.getTime();
+    if (t < t0) continue;
+    if (stepH < 24 ? d.getHours() % stepH === 0 : Math.round((t - t0) / 86400000) % (stepH / 24) === 0) ticks.push(t);
+  }
+  return ticks;
+}
+
+class CellKeeperCellHistoryCard extends PackCard {
+  static properties = {
+    ...PackCard.properties,
+    _range: { state: true },
+    _mode: { state: true },
+    _marks: { state: true },
+    _lines3d: { state: true },
+    _wallFront: { state: true },
+    _view: { state: true },
+    _status3d: { state: true },
+    _data: { state: true },
+    _error: { state: true },
+    _loading: { state: true },
+    _hover: { state: true },
+    _width: { state: true },
+    _height: { state: true },
+  };
+
+  setConfig(config) {
+    super.setConfig({ range: "24h", mode: "voltage", balancing: false, view: "2d", height: "auto", height_3d: "auto", lines: true, ...config });
+    const saved = remembered();
+    this._range = RANGES[saved.range] ? saved.range : RANGES[this._config.range] ? this._config.range : "24h";
+    this._mode = ["voltage", "deviation"].includes(saved.mode) ? saved.mode : this._config.mode;
+    this._view = ["2d", "3d"].includes(saved.view) ? saved.view : this._config.view;
+    this._marks = typeof saved.balancing === "boolean" ? saved.balancing : !!this._config.balancing;
+    this._lines3d = typeof saved.lines === "boolean" ? saved.lines : this._config.lines !== false;
+    this._wallFront = (saved.lines_wall ?? this._config.lines_wall) === "front";
+    // Where the viewer last turned the 3D view, kept through 2D/3D switches and visits.
+    this._camera = saved.camera;
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    this._timer = setInterval(() => this._load(), REFRESH_MS);
+    // Only the plot area now shown counts: the one a 2D/3D switch just removed reports width 0.
+    this._resize = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.target !== this._observed || entry.contentRect.width <= 0) continue;
+        this._width = Math.round(entry.contentRect.width);
+        this._height = Math.round(entry.contentRect.height);
+      }
+    });
+    this._observed = undefined;
+    // Back on the page (Home Assistant keeps views and reattaches them): watch the size again and
+    // give the 3D view its new canvas.
+    this.requestUpdate();
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    clearInterval(this._timer);
+    this._resize?.disconnect();
+    this._drop3d();
+  }
+
+  // Release the 3D view's WebGL context. A canvas whose context is gone can't draw again, so the
+  // next render puts in a new canvas.
+  _drop3d() {
+    if (!this._gl) return;
+    this._gl.destroy();
+    this._gl = undefined;
+    this._glKey = (this._glKey ?? 0) + 1;
+  }
+
+  // Balancing sensors this pack has: { entity id: mark level }.
+  _balancing() {
+    const levels = {};
+    if (this.has("cells_balancing")) levels[this.eid("cells_balancing")] = 1;
+    if (this.has("cells_balancing_active")) levels[this.eid("cells_balancing_active")] = 2;
+    return levels;
+  }
+
+  async _load() {
+    if (!this.hass) return;
+    const range = this._range;
+    const marks = this._marks;
+    const cells = packCells(this.hass, this.prefix);
+    const levels = this._balancing();
+    this._loadedRange = range;
+    this._loading = true;
+    try {
+      const [data, states] = await Promise.all([
+        fetchCellHistory(this.hass, cells, range),
+        marks && Object.keys(levels).length ? fetchBalancing(this.hass, Object.keys(levels), range) : undefined,
+      ]);
+      if (range !== this._range) return;
+      // The BMS's own SOC (not the scaled one sent to the inverter), on the same time grid.
+      // The pack's power in W (positive charging), for its strip.
+      const series = (key, units) =>
+        this.has(key) && data.cols ? fetchSeries(this.hass, this.eid(key), range, data, units).catch(() => undefined) : undefined;
+      const [soc, power] = await Promise.all([series("soc"), series("power_w", { power: "W" })]);
+      if (range !== this._range) return;
+      this._data = {
+        ...data,
+        cells,
+        range,
+        ...columnStats(data.z, data.cols),
+        marks: states ? balanceMarks(data, cells, states, levels) : undefined,
+        soc: soc?.some((v) => !Number.isNaN(v)) ? soc : undefined,
+        power: power?.some((v) => !Number.isNaN(v)) ? power : undefined,
+      };
+      this._error = undefined;
+    } catch (err) {
+      if (range === this._range) this._error = err?.message ?? String(err);
+    } finally {
+      if (range === this._range) this._loading = false;
+    }
+  }
+
+  updated(changed) {
+    const area = this.renderRoot.querySelector(".area, .body3d");
+    if (area && area !== this._observed) {
+      if (this._observed) this._resize.unobserve(this._observed);
+      this._resize.observe(area);
+      this._observed = area;
+    }
+    if (this.hass && (this._loadedRange !== this._range || (this._marks && this._data && !this._data.marks && !this._loading))) {
+      this._load();
+    }
+    if (this._view === "3d") this._update3d(changed);
+    else {
+      this._drop3d();
+      if (["_data", "_mode", "_marks", "_width", "_height", "_view"].some((k) => changed.has(k))) this._draw();
+    }
+  }
+
+  // Create the 3D view for a new canvas, and give it new data, colours or size. The camera stays
+  // where the viewer turned it through the 5-minute refresh and range changes.
+  _update3d(changed) {
+    const canvas = this.renderRoot.querySelector("canvas.gl");
+    if (!canvas) return;
+    let fresh = false;
+    if (this._gl?.canvas !== canvas) {
+      this._gl?.destroy();
+      try {
+        this._gl = new Surface3D(canvas, this.renderRoot.querySelector(".labels"), {
+          onHover: (hover) => (this._hover = hover),
+          onClick: ({ row }) => this.moreInfo(this._data.cells[row].id),
+          // The system took the context (an app in the background, a GPU reset): start again.
+          camera: this._camera,
+          onCamera: (camera) => {
+            this._camera = camera;
+            remember({ camera });
+          },
+          onLost: () => {
+            this._drop3d();
+            this.requestUpdate();
+          },
+        });
+        this._status3d = undefined;
+      } catch (err) {
+        this._gl = undefined;
+        this._status3d = err?.message ?? String(err);
+        return;
+      }
+      fresh = true;
+    }
+    if (fresh || changed.has("_width") || changed.has("_height")) this._gl.setSize(canvas.clientWidth, canvas.clientHeight);
+    if ((fresh || changed.has("_data") || changed.has("_mode") || changed.has("_lines3d") || changed.has("_wallFront")) && this._data?.cols > 1) {
+      this._gl.ink = rgbOf(getComputedStyle(this).getPropertyValue("--primary-text-color").trim());
+      this._gl.setData(this._grid3d());
+      this.requestUpdate();
+    }
+  }
+
+  // What the 3D view draws: the current colouring, and height in the same units.
+  _grid3d() {
+    const d = this._data;
+    const scale = (this._scaleNow = this._scale());
+    const rows = d.cells.length;
+    const deviation = this._mode === "deviation";
+    let zLo = Infinity;
+    let zHi = -Infinity;
+    for (let r = 0; r < rows; r++) {
+      for (let k = 0; k < d.cols; k++) {
+        const v = scale.value(r, k);
+        if (v < zLo) zLo = v;
+        if (v > zHi) zHi = v;
+      }
+    }
+    if (deviation) zHi = -(zLo = -Math.max(Math.abs(zLo), Math.abs(zHi), 0.001));
+    if (!(zHi > zLo)) zHi = zLo + 0.001;
+    const { ticks, digits } = niceTicks(deviation ? zLo * 1000 : zLo, deviation ? zHi * 1000 : zHi, 4);
+    const hours = RANGES[d.range].hours;
+    const locale = this.hass.locale?.language ?? navigator.language;
+    const span = (d.cols - 1) * d.step;
+    const tickEvery = rows > 60 ? 12 : rows > 24 ? 8 : 4;
+    return {
+      cols: d.cols,
+      rows,
+      value: scale.value,
+      lut: scale.lut,
+      lo: scale.lo,
+      hi: scale.hi,
+      zLo,
+      zHi,
+      xTicks: timeTicks(d.t0, d.t0 + span, hours).map((t) => ({
+        at: (t - d.t0) / span,
+        text: new Date(t).toLocaleString(
+          locale,
+          hours > 24 ? { day: "numeric", month: "short" } : { hour: "2-digit", minute: "2-digit" }
+        ),
+      })),
+      yTicks: d.cells
+        .map((c, i) => ({ c, at: rows > 1 ? i / (rows - 1) : 0 }))
+        .filter(({ c }) => c.n === 1 || c.n % tickEvery === 0)
+        .map(({ c, at }) => ({ at, text: String(c.n) })),
+      zTicks: ticks.map((v) => ({
+        v: deviation ? v / 1000 : v,
+        text: deviation ? `${v > 0 ? "+" : ""}${fmt(this.hass, v, digits)}` : fmt(this.hass, v, digits),
+      })),
+      titles: { x: "Time", y: "Cell", z: deviation ? "mV from average" : "V", soc: "SOC" },
+      ...this._wall3d(),
+    };
+  }
+
+  // The lines on the 3D view's back wall, when the Lines button is on: SOC in the primary colour,
+  // power up (charging) and down (discharging) around half height in the charge and discharge
+  // colours, spread in grey.
+  _wall3d() {
+    const d = this._data;
+    if (!this._lines3d) return { wall: [] };
+    const style = getComputedStyle(this);
+    const color = (name, fallback) => rgbOf(style.getPropertyValue(name).trim() || fallback);
+    const wall = [];
+    const soc = d.soc ? this._socScale() : {};
+    if (d.soc) wall.push({ values: d.soc, lo: soc.socLo, hi: soc.socHi, color: color("--primary-color", "#03a9f4") });
+    if (d.power) {
+      const { max } = this._powerScale();
+      wall.push({ values: d.power, lo: -max, hi: max, color: color("--ck-charge", "#4db6ac"), neg: color("--ck-discharge", "#f06292"), zero: true });
+    }
+    const spread = Float32Array.from(d.hi, (v, k) => (v - d.lo[k]) * 1000);
+    const peak = Math.max(5, ...[...spread].filter((v) => !Number.isNaN(v)));
+    wall.push({ values: spread, lo: 0, hi: peak, color: color("--secondary-text-color", "#888888") });
+    return { wall, wallFront: this._wallFront, soc: d.soc, ...soc, spreadPeak: peak };
+  }
+
+  _setWall(front) {
+    this._wallFront = front;
+    remember({ lines_wall: front ? "front" : "back" });
+  }
+
+  _toggleLines() {
+    this._lines3d = !this._lines3d;
+    remember({ lines: this._lines3d });
+  }
+
+  // The SOC scale on the 3D view's back wall: the range the SOC covered, out to whole 10 %, so
+  // a pack that stayed between 90 and 100 % doesn't draw a flat line along the top.
+  _socScale() {
+    const d = this._data;
+    if (!d?.soc) return {};
+    const values = [...d.soc].filter((v) => !Number.isNaN(v));
+    const socLo = Math.max(0, Math.floor((Math.min(...values) - 2) / 10) * 10);
+    const socHi = Math.min(100, Math.ceil((Math.max(...values) + 2) / 10) * 10);
+    const { ticks } = niceTicks(socLo, socHi, 4);
+    return { socLo, socHi, socTicks: ticks.map((v) => ({ v, text: `${fmt(this.hass, v, 0)} %` })) };
+  }
+
+  _setView(view) {
+    this._view = view;
+    this._hover = undefined;
+    remember({ view });
+  }
+
+  _surface() {
+    const d = this._data;
+    const status = this._error
+      ? `Couldn't load the cell statistics: ${this._error}`
+      : !d
+        ? "Loading…"
+        : d.cols < 2
+          ? "No statistics for these cells in this range yet."
+          : this._status3d;
+    return html`<div class="body3d ${this._loading && d ? "stale" : ""}">
+        ${keyed(this._glKey ?? 0, html`<canvas class="gl" style="height:${this._plotHeight(this._config.height_3d, 360, AROUND_3D)}"></canvas>`)}
+        <div class="labels"></div>
+        ${d?.cols > 1 && this._gl
+          ? html`<button class="reset" title="Back to the starting angle" @click=${() => this._gl?.reset()}>
+              <ha-icon icon="mdi:camera-retake-outline"></ha-icon>Reset view
+            </button>`
+          : ""}
+        ${this._tip()} ${status ? html`<div class="msg">${status}</div>` : ""}
+      </div>
+      <div class="foot">
+        ${this._ramp()}
+        ${this._lines3d && d?.cols > 1
+          ? html`<span class="walllegend">
+              ${this._wallFront ? "Front" : "Back"} wall:
+              ${d.soc ? html`<span><i class="socsw"></i>SOC ${this._socScale().socLo}–${this._socScale().socHi} %</span>` : ""}
+              ${d.power
+                ? html`<span><i class="socsw" style="background:var(--ck-charge)"></i><i class="socsw" style="background:var(--ck-discharge)"></i>Power,
+                    0 at half height, ±${this._kw(this._powerScale().max)}</span>`
+                : ""}
+              <span><i class="socsw" style="background:var(--secondary-text-color)"></i>Spread 0–${fmt(this.hass, this._gl?.grid?.spreadPeak ?? 0, 0)} mV</span>
+            </span>`
+          : ""}
+        <span class="dim">Drag to turn · scroll or pinch to zoom · double-click or Reset view to start over</span>
+      </div>`;
+  }
+
+  // CSS height of a plot: the configured px, or the window's height less what is around the plot,
+  // but never under `least` px.
+  _plotHeight(config, least, around) {
+    const px = Number(config);
+    return Number.isFinite(px) && px > 0 ? `${px}px` : `max(${least}px, calc(100dvh - ${around}px))`;
+  }
+
+  // Colour bar for the current scale.
+  _ramp() {
+    const scale = this._data?.cols ? this._scaleNow : undefined;
+    if (!scale) return "";
+    const deviation = this._mode === "deviation";
+    const label = (v) => (deviation ? `${v > 0 ? "+" : ""}${fmt(this.hass, v * 1000, 0)}` : fmt(this.hass, v, 3));
+    return html`<span class="bar">
+      <span class="num">${label(scale.lo)}</span>
+      <i class="ramp" style="background:linear-gradient(to right, ${scale.stops.join(",")})"></i>
+      <span class="num">${label(scale.hi)} ${deviation ? "mV" : "V"}</span>
+    </span>`;
+  }
+
+  // Colour scale for the current mode: { lut, lo, hi, value(row, col) }.
+  _scale() {
+    const d = this._data;
+    if (this._mode === "deviation") {
+      const devs = [];
+      d.z.forEach((row) => row.forEach((v, k) => devs.push(Math.abs(v - d.avg[k]))));
+      const span = Math.max(percentile(devs, 0.99) || 0, 0.005);
+      return {
+        lut: colorTable(DEVIATION_STOPS(this.hass.themes?.darkMode)),
+        stops: DEVIATION_STOPS(this.hass.themes?.darkMode),
+        lo: -span,
+        hi: span,
+        value: (r, k) => d.z[r][k] - d.avg[k],
+      };
+    }
+    const all = [];
+    d.z.forEach((row) => row.forEach((v) => all.push(v)));
+    const lo = percentile(all, 0.01);
+    const hi = percentile(all, 0.99);
+    return { lut: colorTable(VOLTAGE_STOPS), stops: VOLTAGE_STOPS, lo, hi: hi > lo ? hi : lo + 0.01, value: (r, k) => d.z[r][k] };
+  }
+
+  _draw() {
+    const d = this._data;
+    const canvas = this.renderRoot.querySelector("canvas.map");
+    const strip = this.renderRoot.querySelector("canvas.spread");
+    if (!d || !d.cols || !canvas || !this._width) return;
+    const rows = d.cells.length;
+    const dpr = window.devicePixelRatio || 1;
+    const w = this._width;
+    const h = canvas.clientHeight;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    const g = canvas.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // One pixel per cell and interval, scaled up without smoothing.
+    const scale = (this._scaleNow = this._scale());
+    const img = new ImageData(d.cols, rows);
+    for (let r = 0; r < rows; r++) {
+      for (let k = 0; k < d.cols; k++) {
+        const v = scale.value(r, k);
+        if (Number.isNaN(v)) continue;
+        const i = Math.round(Math.min(1, Math.max(0, (v - scale.lo) / (scale.hi - scale.lo))) * 255) * 3;
+        const p = (r * d.cols + k) * 4;
+        img.data[p] = scale.lut[i];
+        img.data[p + 1] = scale.lut[i + 1];
+        img.data[p + 2] = scale.lut[i + 2];
+        img.data[p + 3] = 255;
+      }
+    }
+    const tiles = new OffscreenCanvas(d.cols, rows);
+    tiles.getContext("2d").putImageData(img, 0, 0);
+    g.imageSmoothingEnabled = false;
+    g.clearRect(0, 0, w, h);
+    g.drawImage(tiles, 0, 0, w, h);
+
+    // Balancing: a small mark in the middle of each tile, discharging in orange.
+    const cw = w / d.cols;
+    const ch = h / rows;
+    const mw = Math.max(1, Math.min(cw * 0.5, 4));
+    const mh = Math.max(1, Math.min(ch * 0.35, 4));
+    for (let r = 0; r < (this._marks && d.marks ? rows : 0); r++) {
+      for (let k = 0; k < d.cols; k++) {
+        const m = d.marks[r * d.cols + k];
+        if (!m) continue;
+        g.fillStyle = m === 2 ? BALANCE_ACTIVE : BALANCE;
+        g.fillRect((k + 0.5) * cw - mw / 2, (r + 0.5) * ch - mh / 2, mw, mh);
+      }
+    }
+
+    // Spread between the highest and lowest cell, in grey; the BMS's SOC under it in the primary
+    // colour, as on the pack card's chart and in 3D.
+    const style = getComputedStyle(this);
+    const spread = Array.from(d.hi, (v, k) => v - d.lo[k]);
+    const peak = Math.max(0.005, ...spread.filter((v) => !Number.isNaN(v)));
+    this._peak = peak;
+    this._strip(strip, spread, 0, peak, style.getPropertyValue("--secondary-text-color").trim() || "#888", w, cw, dpr);
+    const socStrip = this.renderRoot.querySelector("canvas.soc");
+    if (socStrip && d.soc) {
+      const { socLo, socHi } = this._socScale();
+      this._strip(socStrip, d.soc, socLo, socHi, style.getPropertyValue("--primary-color").trim() || "#03a9f4", w, cw, dpr);
+    }
+    this._powerStrip(this.renderRoot.querySelector("canvas.power"), d.power, style, w, cw, dpr);
+    this.requestUpdate();
+  }
+
+  // A filled line of `values` (one per interval) between lo at the bottom and hi at the top.
+  _strip(canvas, values, lo, hi, color, w, cw, dpr) {
+    if (!canvas) return;
+    const sh = canvas.clientHeight;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(sh * dpr);
+    const g = canvas.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, sh);
+    const yOf = (v) => sh - Math.min(1, Math.max(0, (v - lo) / (hi - lo || 1))) * (sh - 2);
+    g.fillStyle = color;
+    g.globalAlpha = 0.3;
+    values.forEach((v, k) => {
+      if (Number.isNaN(v)) return;
+      const y = yOf(v);
+      g.fillRect(k * cw, y, Math.ceil(cw), sh - y);
+    });
+    g.globalAlpha = 1;
+    g.strokeStyle = color;
+    g.lineWidth = 1.5;
+    g.beginPath();
+    let pen = false;
+    values.forEach((v, k) => {
+      if (Number.isNaN(v)) return (pen = false);
+      const x = (k + 0.5) * cw;
+      pen ? g.lineTo(x, yOf(v)) : g.moveTo(x, yOf(v));
+      pen = true;
+    });
+    g.stroke();
+  }
+
+  // Power around a zero line: charging up in the charge colour, discharging down in the discharge
+  // colour; the scale is the larger of the two.
+  _powerStrip(canvas, power, style, w, cw, dpr) {
+    if (!canvas || !power) return;
+    const sh = canvas.clientHeight;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(sh * dpr);
+    const g = canvas.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, sh);
+    const { max } = this._powerScale();
+    const mid = sh / 2;
+    const yOf = (v) => mid - (Math.max(-max, Math.min(max, v)) / max) * (mid - 1);
+    const charge = style.getPropertyValue("--ck-charge").trim() || "#4db6ac";
+    const discharge = style.getPropertyValue("--ck-discharge").trim() || "#f06292";
+    g.globalAlpha = 0.55;
+    power.forEach((v, k) => {
+      if (Number.isNaN(v)) return;
+      const y = yOf(v);
+      g.fillStyle = v >= 0 ? charge : discharge;
+      g.fillRect(k * cw, Math.min(y, mid), Math.ceil(cw), Math.abs(mid - y));
+    });
+    g.globalAlpha = 0.35;
+    g.fillStyle = style.getPropertyValue("--primary-text-color").trim() || "#888";
+    g.fillRect(0, Math.round(mid), w, 1);
+    g.globalAlpha = 1;
+  }
+
+  // The power strip's scale: the largest charge or discharge in the range, and both for its label.
+  _powerScale() {
+    const values = [...(this._data?.power ?? [])].filter((v) => !Number.isNaN(v));
+    const top = Math.max(0, ...values);
+    const bottom = Math.min(0, ...values);
+    return { max: Math.max(top, -bottom, 1), top, bottom };
+  }
+
+  _kw(w) {
+    return Math.abs(w) >= 1000 ? `${fmt(this.hass, w / 1000, 1)} kW` : `${fmt(this.hass, w, 0)} W`;
+  }
+
+  _powerText(w) {
+    const idle = Math.abs(w) < 20;
+    return html`<div class="num">Power ${idle ? "idle" : html`<span style="color:${w > 0 ? "var(--ck-charge)" : "var(--ck-discharge)"}"
+      >${w > 0 ? "+" : "−"}${this._kw(Math.abs(w))}</span> ${w > 0 ? "charging" : "discharging"}`}</div>`;
+  }
+
+  _pick(ev, withRow) {
+    const d = this._data;
+    if (!d?.cols) return;
+    const r = ev.currentTarget.getBoundingClientRect();
+    const k = Math.floor(((ev.clientX - r.left) / r.width) * d.cols);
+    const row = withRow ? Math.floor(((ev.clientY - r.top) / r.height) * d.cells.length) : undefined;
+    if (k < 0 || k >= d.cols) return (this._hover = undefined);
+    this._hover = { k, row: row !== undefined && row >= 0 && row < d.cells.length ? row : undefined };
+  }
+
+  _setRange(range) {
+    this._range = range;
+    this._hover = undefined;
+    remember({ range });
+  }
+
+  _toggleMarks() {
+    this._marks = !this._marks;
+    remember({ balancing: this._marks });
+  }
+
+  _setMode(mode) {
+    this._mode = mode;
+    remember({ mode });
+  }
+
+  _when(t) {
+    const locale = this.hass?.locale?.language ?? navigator.language;
+    const hours = RANGES[this._data.range].hours;
+    return new Date(t).toLocaleString(locale, {
+      ...(hours > 24 ? { weekday: "short", day: "numeric", month: "short" } : {}),
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  _tip() {
+    const d = this._data;
+    const hv = this._hover;
+    if (!d || !hv) return "";
+    const t = d.t0 + hv.k * d.step;
+    const spreadMv = (d.hi[hv.k] - d.lo[hv.k]) * 1000;
+    const cell = hv.row !== undefined ? d.cells[hv.row] : undefined;
+    const v = cell ? d.z[hv.row][hv.k] : NaN;
+    const mark = cell && this._marks && d.marks ? d.marks[hv.row * d.cols + hv.k] : 0;
+    const right = hv.k > d.cols * 0.6;
+    const at =
+      hv.x !== undefined
+        ? `left:${hv.x}px;top:${hv.y}px;margin:0;transform:translate(${
+            hv.x > (this._width ?? 0) * 0.6 ? "calc(-100% - 16px)" : "16px"
+          }, -50%)`
+        : `left:${((hv.k + 0.5) / d.cols) * 100}%;${right ? "transform:translateX(-100%)" : ""}`;
+    return html`<div class="tip" style=${at}>
+      <div class="dim">${this._when(t)} – ${this._when(t + d.step)}</div>
+      ${cell
+        ? html`<b>Cell ${cell.n}</b>
+            <div class="num">
+              ${Number.isNaN(v)
+                ? "no data"
+                : html`${fmt(this.hass, v, 3)} V
+                    <span class="dim">(${v >= d.avg[hv.k] ? "+" : ""}${fmt(this.hass, (v - d.avg[hv.k]) * 1000, 1)} mV)</span>`}
+            </div>
+            ${mark === 2
+              ? html`<div style="color:${BALANCE_ACTIVE}">Balancing, discharging</div>`
+              : mark === 1
+                ? html`<div style="color:${BALANCE}">Balancing</div>`
+                : ""}`
+        : ""}
+      <div class="num">Spread ${Number.isNaN(spreadMv) ? "–" : html`${fmt(this.hass, spreadMv, 0)} mV`}</div>
+      ${d.soc && !Number.isNaN(d.soc[hv.k]) ? html`<div class="num">SOC ${fmt(this.hass, d.soc[hv.k], 1)} %</div>` : ""}
+      ${d.power && !Number.isNaN(d.power[hv.k]) ? this._powerText(d.power[hv.k]) : ""}
+    </div>`;
+  }
+
+  render() {
+    if (!this.hass || !this._config) return nothing;
+    const d = this._data;
+    const rows = d?.cells.length ?? packCells(this.hass, this.prefix).length;
+    const height = this._plotHeight(this._config.height, Math.min(720, Math.max(240, rows * 6)), AROUND_2D);
+    const hours = RANGES[this._range].hours;
+    const t1 = d ? d.t0 + d.cols * d.step : 0;
+    const tickEvery = rows > 60 ? 12 : rows > 24 ? 8 : 4;
+    const hv = this._hover;
+
+    return html`
+      <ha-card>
+        <div class="wrap">
+          <div class="head">
+            <div class="label">Cell history</div>
+            <div class="dim">
+              ${rows} cells · ${RANGES[this._range].period === "hour" ? "hourly" : "5-minute"} averages
+            </div>
+            <span class="spacer"></span>
+            <div class="seg">
+              ${[["2d", "2D"], ["3d", "3D"]].map(
+                ([v, name]) => html`<button class=${v === this._view ? "on" : ""} @click=${() => this._setView(v)}>${name}</button>`
+              )}
+            </div>
+            <div class="seg">
+              ${[["voltage", "Voltage"], ["deviation", "From average"]].map(
+                ([m, name]) => html`<button class=${m === this._mode ? "on" : ""} @click=${() => this._setMode(m)}>${name}</button>`
+              )}
+            </div>
+            ${this._view === "3d"
+              ? html`<div class="seg">
+                  <button class=${this._lines3d ? "on" : ""} title="SOC, power and spread on a wall" @click=${() => this._toggleLines()}>Lines</button>
+                </div>
+                ${this._lines3d
+                  ? html`<div class="seg">
+                      ${[[false, "Back"], [true, "Front"]].map(
+                        ([front, name]) => html`<button class=${front === this._wallFront ? "on" : ""}
+                          title=${front ? "On the front wall, in front of the surface" : "On the back wall, behind the surface"}
+                          @click=${() => this._setWall(front)}>${name}</button>`
+                      )}
+                    </div>`
+                  : ""}`
+              : ""}
+            ${this._view === "2d" && Object.keys(this._balancing()).length
+              ? html`<div class="seg">
+                  <button class=${this._marks ? "on" : ""} @click=${() => this._toggleMarks()}>Balancing</button>
+                </div>`
+              : ""}
+            <div class="seg">
+              ${Object.entries(RANGES).map(
+                ([r, { label: name }]) =>
+                  html`<button class=${r === this._range ? "on" : ""} @click=${() => this._setRange(r)}>${name}</button>`
+              )}
+            </div>
+          </div>
+          ${this._view === "3d"
+            ? this._surface()
+            : html`          <div class="plot">
+            <div class="yaxis" style="height:${height}">
+              ${(d?.cells ?? []).map((c, i) =>
+                c.n === 1 || c.n % tickEvery === 0
+                  ? html`<span style="top:${((i + 0.5) / rows) * 100}%">${c.n}</span>`
+                  : ""
+              )}
+            </div>
+            <div class="area ${this._loading && d ? "stale" : ""}">
+              <canvas
+                class="map"
+                style="height:${height}"
+                @pointermove=${(ev) => this._pick(ev, true)}
+                @pointerleave=${() => (this._hover = undefined)}
+                @click=${() => hv?.row !== undefined && this.moreInfo(d.cells[hv.row].id)}
+              ></canvas>
+              ${hv && d
+                ? html`<i class="guide" style="left:${(hv.k / d.cols) * 100}%;width:${100 / d.cols}%"></i>
+                    ${hv.row !== undefined
+                      ? html`<i class="cellbox" style="top:${(hv.row / rows) * 100}%;height:${100 / rows}%"></i>`
+                      : ""}`
+                : ""}
+              ${this._tip()}
+              ${!d && !this._error ? html`<div class="msg">Loading…</div>` : ""}
+              ${this._error ? html`<div class="msg">Couldn't load the cell statistics: ${this._error}</div>` : ""}
+              ${d && !d.cols && !this._error
+                ? html`<div class="msg">No statistics for these cells in this range yet.</div>`
+                : ""}
+            </div>
+          </div>
+          <div class="plot">
+            <div class="yaxis"></div>
+            <div class="xaxis">
+              ${d?.cols
+                ? timeTicks(d.t0, t1, hours).map((t) => {
+                    const at = (t - d.t0) / (t1 - d.t0);
+                    const locale = this.hass.locale?.language ?? navigator.language;
+                    const text = new Date(t).toLocaleString(
+                      locale,
+                      hours > 24 ? { day: "numeric", month: "short" } : { hour: "2-digit", minute: "2-digit" }
+                    );
+                    return at < 0.97 ? html`<span style="left:${at * 100}%">${text}</span>` : "";
+                  })
+                : ""}
+            </div>
+          </div>
+          <div class="plot">
+            <div class="yaxis side">Spread</div>
+            <div class="area">
+              <canvas class="spread" @pointermove=${(ev) => this._pick(ev, false)} @pointerleave=${() => (this._hover = undefined)}></canvas>
+              ${hv && d ? html`<i class="guide" style="left:${(hv.k / d.cols) * 100}%;width:${100 / d.cols}%"></i>` : ""}
+              ${this._peak && d?.cols ? html`<span class="peak num">peak ${fmt(this.hass, this._peak * 1000, 0)} mV</span>` : ""}
+            </div>
+          </div>
+          ${d?.soc
+            ? html`<div class="plot">
+                <div class="yaxis side">SOC</div>
+                <div class="area">
+                  <canvas class="soc" @pointermove=${(ev) => this._pick(ev, false)} @pointerleave=${() => (this._hover = undefined)}></canvas>
+                  ${hv ? html`<i class="guide" style="left:${(hv.k / d.cols) * 100}%;width:${100 / d.cols}%"></i>` : ""}
+                  <span class="peak num">${this._socScale().socLo}–${this._socScale().socHi} %</span>
+                </div>
+              </div>`
+            : ""}
+          ${d?.power
+            ? html`<div class="plot">
+                <div class="yaxis side">Power</div>
+                <div class="area">
+                  <canvas class="power" @pointermove=${(ev) => this._pick(ev, false)} @pointerleave=${() => (this._hover = undefined)}></canvas>
+                  ${hv ? html`<i class="guide" style="left:${(hv.k / d.cols) * 100}%;width:${100 / d.cols}%"></i>` : ""}
+                  <span class="peak num">
+                    <span style="color:var(--ck-charge)">+${this._kw(this._powerScale().top)}</span> /
+                    <span style="color:var(--ck-discharge)">−${this._kw(-this._powerScale().bottom)}</span>
+                  </span>
+                </div>
+              </div>`
+            : ""}
+          <div class="foot">
+            ${this._ramp()}
+            ${this._marks && d?.marks?.some((m) => m === 1)
+              ? html`<span><i class="sw" style="background:${BALANCE}"></i>Balancing</span>`
+              : ""}
+            ${this._marks && d?.marks?.some((m) => m === 2)
+              ? html`<span><i class="sw" style="background:${BALANCE_ACTIVE}"></i>Discharging</span>`
+              : ""}
+          </div>`}
+        </div>
+      </ha-card>
+    `;
+  }
+
+  getGridOptions() {
+    return { columns: "full", rows: "auto" };
+  }
+
+  static styles = [
+    baseStyles,
+    css`
+      .wrap {
+        padding: 16px 20px 14px;
+      }
+      .head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px 10px;
+        margin-bottom: 12px;
+      }
+      .head .dim {
+        font-size: 13px;
+      }
+      .dim {
+        color: var(--ck-muted);
+      }
+      .spacer {
+        flex: 1;
+      }
+      .seg {
+        display: inline-flex;
+        border: 1px solid var(--ck-line);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      .seg button {
+        font: inherit;
+        font-size: 12px;
+        padding: 4px 10px;
+        border: 0;
+        background: none;
+        color: var(--primary-text-color);
+        cursor: pointer;
+      }
+      .seg button + button {
+        border-left: 1px solid var(--ck-line);
+      }
+      .seg button.on {
+        background: var(--primary-color);
+        color: var(--text-primary-color, #fff);
+      }
+      .plot {
+        display: flex;
+      }
+      .yaxis {
+        position: relative;
+        flex: 0 0 34px;
+        font-size: 10px;
+        color: var(--ck-muted);
+      }
+      .yaxis span {
+        position: absolute;
+        right: 6px;
+        transform: translateY(-50%);
+      }
+      .yaxis.side {
+        font-size: 10px;
+        writing-mode: vertical-rl;
+        transform: rotate(180deg);
+        text-align: center;
+        flex-basis: 34px;
+      }
+      .area {
+        position: relative;
+        flex: 1;
+        min-width: 0;
+        transition: opacity 0.2s;
+      }
+      .area.stale {
+        opacity: 0.5;
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        cursor: crosshair;
+        touch-action: pan-y;
+      }
+      canvas.spread,
+      canvas.soc,
+      canvas.power {
+        height: 56px;
+        border-top: 1px solid var(--ck-line);
+      }
+      .guide {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        min-width: 1px;
+        background: var(--primary-text-color);
+        opacity: 0.25;
+        pointer-events: none;
+      }
+      .cellbox {
+        position: absolute;
+        left: 0;
+        right: 0;
+        min-height: 1px;
+        outline: 1px solid var(--primary-text-color);
+        pointer-events: none;
+      }
+      .msg {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--ck-muted);
+        font-size: 14px;
+      }
+      .peak {
+        position: absolute;
+        top: 2px;
+        right: 4px;
+        font-size: 10px;
+        color: var(--ck-muted);
+        pointer-events: none;
+      }
+      .xaxis {
+        position: relative;
+        flex: 1;
+        height: 18px;
+        margin-top: 2px;
+        font-size: 10px;
+        color: var(--ck-muted);
+      }
+      .xaxis span {
+        position: absolute;
+        white-space: nowrap;
+        transform: translateX(-50%);
+      }
+      .tip {
+        position: absolute;
+        top: 4px;
+        margin: 0 10px;
+        padding: 6px 10px;
+        border-radius: 8px;
+        font-size: 12px;
+        line-height: 1.5;
+        white-space: nowrap;
+        pointer-events: none;
+        background: var(--card-background-color, #fff);
+        border: 1px solid var(--ck-line);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        z-index: 1;
+      }
+      .foot {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px 16px;
+        margin: 10px 0 0 34px;
+        font-size: 12px;
+        color: var(--ck-muted);
+      }
+      .foot span {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .ramp {
+        width: 120px;
+        height: 10px;
+        border-radius: 2px;
+      }
+      .body3d {
+        position: relative;
+        overflow: hidden;
+        transition: opacity 0.2s;
+      }
+      .body3d.stale {
+        opacity: 0.5;
+      }
+      canvas.gl {
+        cursor: grab;
+        touch-action: none;
+      }
+      canvas.gl:active {
+        cursor: grabbing;
+      }
+      .reset {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        z-index: 1;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font: inherit;
+        font-size: 12px;
+        padding: 4px 10px 4px 8px;
+        border: 1px solid var(--ck-line);
+        border-radius: 8px;
+        background: var(--card-background-color, #fff);
+        color: var(--primary-text-color);
+        cursor: pointer;
+      }
+      .reset:hover {
+        border-color: var(--primary-color);
+      }
+      .reset ha-icon {
+        --mdc-icon-size: 16px;
+      }
+      .labels {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        font-size: 10px;
+        color: var(--ck-muted);
+      }
+      .labels span {
+        position: absolute;
+        left: 0;
+        top: 0;
+        white-space: nowrap;
+        text-shadow: 0 0 3px var(--card-background-color, #fff), 0 0 2px var(--card-background-color, #fff);
+      }
+      .socsw {
+        width: 14px;
+        height: 3px;
+        border-radius: 2px;
+        background: var(--primary-color);
+      }
+      .labels span.soc {
+        color: var(--primary-color);
+      }
+      .labels span.pwr {
+        color: var(--secondary-text-color);
+      }
+      .walllegend {
+        display: inline-flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px 12px;
+      }
+      .walllegend > span {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .labels span.title {
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--primary-text-color);
+      }
+      .sw {
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+      }
+    `,
+  ];
+}
+
+define("cellkeeper-cell-history-card", CellKeeperCellHistoryCard);
