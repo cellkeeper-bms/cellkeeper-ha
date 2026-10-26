@@ -78,11 +78,11 @@ class CellKeeperCellsCard extends PackCard {
           </div>
           <div class="stats">
             <div class="clickable" @click=${() => this.moreInfo("cell_voltage_min")}>
-              <div class="label"><i class="dot" style="background:var(--ck-discharge)"></i>Lowest · #${minCell.n}</div>
+              <div class="label"><i class="dot" style="background:var(--ck-cell-low)"></i>Lowest · #${minCell.n}</div>
               <div class="mid num">${fmt(this.hass, lo, 3)}<span class="unit">V</span></div>
             </div>
             <div class="clickable" @click=${() => this.moreInfo("cell_voltage_max")}>
-              <div class="label"><i class="dot" style="background:var(--ck-charge)"></i>Highest · #${maxCell.n}</div>
+              <div class="label"><i class="dot" style="background:var(--ck-cell-high)"></i>Highest · #${maxCell.n}</div>
               <div class="mid num">${fmt(this.hass, hi, 3)}<span class="unit">V</span></div>
             </div>
             <div class="clickable" @click=${() => this.moreInfo("cell_voltage_delta")}>
@@ -221,10 +221,10 @@ class CellKeeperCellsCard extends PackCard {
       }
       /* The highest cell limits charging, the lowest limits discharging. */
       .bar.min {
-        fill: var(--ck-discharge);
+        fill: var(--ck-cell-low);
       }
       .bar.max {
-        fill: var(--ck-charge);
+        fill: var(--ck-cell-high);
       }
       .dot {
         display: inline-block;

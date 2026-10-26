@@ -302,7 +302,8 @@ class CellKeeperCellHistoryCard extends PackCard {
   }
 
   // The lines on the 3D view's back wall, when the Lines button is on: SOC in the primary colour,
-  // power green up (charging) and red down (discharging) around half height, spread in grey.
+  // power up (charging) and down (discharging) around half height in the charge and discharge
+  // colours, spread in grey.
   _wall3d() {
     const d = this._data;
     if (!this._lines3d) return { wall: [] };
@@ -313,7 +314,7 @@ class CellKeeperCellHistoryCard extends PackCard {
     if (d.soc) wall.push({ values: d.soc, lo: soc.socLo, hi: soc.socHi, color: color("--primary-color", "#03a9f4") });
     if (d.power) {
       const { max } = this._powerScale();
-      wall.push({ values: d.power, lo: -max, hi: max, color: color("--ck-good", "#43a047"), neg: color("--ck-bad", "#db4437"), zero: true });
+      wall.push({ values: d.power, lo: -max, hi: max, color: color("--ck-charge", "#4db6ac"), neg: color("--ck-discharge", "#f06292"), zero: true });
     }
     const spread = Float32Array.from(d.hi, (v, k) => (v - d.lo[k]) * 1000);
     const peak = Math.max(5, ...[...spread].filter((v) => !Number.isNaN(v)));
@@ -370,7 +371,7 @@ class CellKeeperCellHistoryCard extends PackCard {
               Back wall:
               ${d.soc ? html`<span><i class="socsw"></i>SOC ${this._socScale().socLo}–${this._socScale().socHi} %</span>` : ""}
               ${d.power
-                ? html`<span><i class="socsw" style="background:var(--ck-good)"></i><i class="socsw" style="background:var(--ck-bad)"></i>Power,
+                ? html`<span><i class="socsw" style="background:var(--ck-charge)"></i><i class="socsw" style="background:var(--ck-discharge)"></i>Power,
                     0 at half height, ±${this._kw(this._powerScale().max)}</span>`
                 : ""}
               <span><i class="socsw" style="background:var(--secondary-text-color)"></i>Spread 0–${fmt(this.hass, this._gl?.grid?.spreadPeak ?? 0, 0)} mV</span>
@@ -518,8 +519,8 @@ class CellKeeperCellHistoryCard extends PackCard {
     g.stroke();
   }
 
-  // Power around a zero line: charging up in green, discharging down in red; the scale is the
-  // larger of the two.
+  // Power around a zero line: charging up in the charge colour, discharging down in the discharge
+  // colour; the scale is the larger of the two.
   _powerStrip(canvas, power, style, w, cw, dpr) {
     if (!canvas || !power) return;
     const sh = canvas.clientHeight;
@@ -531,8 +532,8 @@ class CellKeeperCellHistoryCard extends PackCard {
     const { max } = this._powerScale();
     const mid = sh / 2;
     const yOf = (v) => mid - (Math.max(-max, Math.min(max, v)) / max) * (mid - 1);
-    const charge = style.getPropertyValue("--ck-good").trim() || "#43a047";
-    const discharge = style.getPropertyValue("--ck-bad").trim() || "#db4437";
+    const charge = style.getPropertyValue("--ck-charge").trim() || "#4db6ac";
+    const discharge = style.getPropertyValue("--ck-discharge").trim() || "#f06292";
     g.globalAlpha = 0.55;
     power.forEach((v, k) => {
       if (Number.isNaN(v)) return;
@@ -560,7 +561,7 @@ class CellKeeperCellHistoryCard extends PackCard {
 
   _powerText(w) {
     const idle = Math.abs(w) < 20;
-    return html`<div class="num">Power ${idle ? "idle" : html`<span style="color:${w > 0 ? "var(--ck-good)" : "var(--ck-bad)"}"
+    return html`<div class="num">Power ${idle ? "idle" : html`<span style="color:${w > 0 ? "var(--ck-charge)" : "var(--ck-discharge)"}"
       >${w > 0 ? "+" : "−"}${this._kw(Math.abs(w))}</span> ${w > 0 ? "charging" : "discharging"}`}</div>`;
   }
 
@@ -757,8 +758,8 @@ class CellKeeperCellHistoryCard extends PackCard {
                   <canvas class="power" @pointermove=${(ev) => this._pick(ev, false)} @pointerleave=${() => (this._hover = undefined)}></canvas>
                   ${hv ? html`<i class="guide" style="left:${(hv.k / d.cols) * 100}%;width:${100 / d.cols}%"></i>` : ""}
                   <span class="peak num">
-                    <span style="color:var(--ck-good)">+${this._kw(this._powerScale().top)}</span> /
-                    <span style="color:var(--ck-bad)">−${this._kw(-this._powerScale().bottom)}</span>
+                    <span style="color:var(--ck-charge)">+${this._kw(this._powerScale().top)}</span> /
+                    <span style="color:var(--ck-discharge)">−${this._kw(-this._powerScale().bottom)}</span>
                   </span>
                 </div>
               </div>`

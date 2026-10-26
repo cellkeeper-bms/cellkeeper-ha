@@ -19,11 +19,11 @@ Views: **Overview** (below), **Event** (every event type, coloured by state), **
 
 **Cell History** is a heatmap of every cell over 6 h, 24 h, 7 d or 30 d, either as voltage or as
 each cell's difference from the pack average at the time, with the spread between the highest and
-lowest cell, the BMS's SOC and the pack's power (charging up in green, discharging down in red) underneath, balancing cells marked on request, and a readout of the
+lowest cell, the BMS's SOC and the pack's power (charging up, discharging down) underneath, balancing cells marked on request, and a readout of the
 cell and time under the pointer. Its **3D** button shows the same data, in the same colouring, as a lit surface you
 can turn and zoom (it keeps where you turned it; a phone starts looking down the time axis), with
 a crosshair and the same readout following the pointer. On its back wall, lines over the same time
-show the BMS's SOC (with its own scale), the pack's power (green charging above half height, red
+show the BMS's SOC (with its own scale), the pack's power (charging above half height,
 discharging below) and the cells' spread (grey); the **Lines** button hides them. It reads Home
 Assistant's 5-minute and hourly statistics for all cells in one request instead of every cell's raw
 history, so 24 h opens in about a second, in 2D or 3D. Both fill the window's height.
@@ -33,7 +33,7 @@ history, so 24 h opens in about a second, in 2D or 3D. Both fill the window's he
 One page that answers "is the pack OK, and what is it doing?":
 
 - **Pack card**: state of charge on the CellKeeper battery, filled to the level and with the logo's
-  arrow running in or out while it charges (green) or discharges (red); stored energy and the change over the
+  arrow running in or out while it charges or discharges, in the charge or discharge colour; stored energy and the change over the
   last hour; system and contactor state; a banner for every active warning, critical or fatal
   event; and a chip when a new dashboard version is out.
 - **Power flow**: charging/discharging power with time to full or empty, current and pack and

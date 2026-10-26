@@ -116,9 +116,12 @@ export function fmtDuration(hours) {
 // Shared look: card padding, small caps labels, big numbers.
 export const baseStyles = css`
   :host {
-    /* Charging green, discharging red, across the dashboard. */
-    --ck-charge: var(--success-color, #43a047);
-    --ck-discharge: var(--error-color, #db4437);
+    /* Home Assistant's energy colours, swapped: charging in the teal, discharging in the pink. */
+    --ck-charge: var(--energy-battery-out-color, #4db6ac);
+    --ck-discharge: var(--energy-battery-in-color, #f06292);
+    /* The cells card's lowest and highest cell, matching the From average heatmap. */
+    --ck-cell-low: var(--energy-battery-out-color, #4db6ac);
+    --ck-cell-high: var(--energy-battery-in-color, #f06292);
     --ck-good: var(--success-color, #43a047);
     --ck-warn: var(--warning-color, #ffa600);
     --ck-bad: var(--error-color, #db4437);
