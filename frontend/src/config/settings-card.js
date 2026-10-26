@@ -93,15 +93,25 @@ class CellKeeperSettingsCard extends PackCard {
   }
 
   // Two-step confirm: the first tap arms the row for a few seconds, the second acts.
-  _confirm(rowKey, act) {
+  // onExpire runs if the second one doesn't come in time.
+  _confirm(rowKey, act, onExpire) {
+    clearTimeout(this._armTimer);
     if (this._armed === rowKey) {
       this._armed = undefined;
       act();
       return;
     }
     this._armed = rowKey;
-    clearTimeout(this._armTimer);
-    this._armTimer = setTimeout(() => (this._armed = undefined), CONFIRM_MS);
+    this._armTimer = setTimeout(() => {
+      this._armed = undefined;
+      onExpire?.();
+    }, CONFIRM_MS);
+  }
+
+  _dropDraft(id) {
+    if (!(id in this._drafts)) return;
+    const { [id]: _, ...rest } = this._drafts;
+    this._drafts = rest;
   }
 
   async _write(row, shownValue) {
@@ -202,7 +212,21 @@ class CellKeeperSettingsCard extends PackCard {
         <ha-icon class="lock" icon="mdi:lock-outline"></ha-icon>`;
     }
     const armed = this._armed === row.key;
-    const apply = (v) => (row.confirm ? this._confirm(row.key, () => this._write(row, v)) : this._write(row, v));
+    const id = st.entity_id;
+    const commit = (input) => {
+      const v = parseFloat(input.value);
+      if (!Number.isFinite(v)) {
+        this._dropDraft(id);
+        input.value = value.toFixed(digits);
+      } else if (!row.confirm) {
+        this._write(row, v);
+      } else {
+        // The draft keeps the typed value on screen through state updates until the second
+        // Enter writes it (or the arm expires).
+        this._drafts = { ...this._drafts, [id]: v };
+        this._confirm(row.key, () => (this._dropDraft(id), this._write(row, v)), () => this._dropDraft(id));
+      }
+    };
     return html`
       ${status}
       <div class="stepper ${armed ? "armed" : ""}">
@@ -213,12 +237,19 @@ class CellKeeperSettingsCard extends PackCard {
           step=${step}
           class=${shown !== value ? "draft" : ""}
           .value=${shown.toFixed(digits)}
-          @change=${(e) => {
-            const v = parseFloat(e.target.value);
-            if (Number.isFinite(v)) apply(v);
-            else e.target.value = value.toFixed(digits);
+          @change=${(e) => !row.confirm && commit(e.target)}
+          @keydown=${(e) => {
+            if (e.key !== "Enter") return;
+            // A confirmed row acts on each Enter itself: a second Enter on an unchanged value
+            // fires no change event, so the confirm never came through that way.
+            if (row.confirm) {
+              e.preventDefault();
+              commit(e.target);
+            } else {
+              e.target.blur();
+            }
           }}
-          @keydown=${(e) => e.key === "Enter" && e.target.blur()}
+          @blur=${() => row.confirm && !this._armed && this._dropDraft(id)}
         />
         <span class="unit">${unit}</span>
         <button aria-label="Increase" @click=${() => this._nudge(row, st, value, step)} ?hidden=${row.confirm}>+</button>
