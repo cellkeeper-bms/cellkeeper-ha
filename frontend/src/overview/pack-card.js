@@ -214,7 +214,8 @@ class CellKeeperPackCard extends PackCard {
     const [cx, cy, cw, ch] = BATTERY.cavityBox;
     const level = Math.max(0, Math.min(100, soc ?? 0)) / 100;
     const fillY = cy + ch * (1 - level);
-    const color = socColor(soc);
+    // Green while charging, red while discharging; idle, by how full it is.
+    const color = { charging: "var(--ck-charge)", discharging: "var(--ck-discharge)" }[mode] ?? socColor(soc);
     const stored = soc !== undefined && capacity && voltage ? (capacity * soc * voltage) / 100 / 1000 : undefined;
     const ah = soc !== undefined && capacity ? (capacity * soc) / 100 : undefined;
     const hourAgo = this._valueAgo(this._day?.soc, 3600e3);

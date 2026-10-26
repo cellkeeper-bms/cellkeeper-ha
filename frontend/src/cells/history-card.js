@@ -25,7 +25,7 @@ import {
 
 const BALANCE = "#FDD835";
 const BALANCE_ACTIVE = "#FF9800";
-// Below the average teal, above it pink: the colours the cells card uses for lowest and highest.
+// Below the average teal, above it pink.
 const DEVIATION_STOPS = (dark) => ["#00695c", "#4db6ac", dark ? "#2b2b2b" : "#eeeeee", "#f06292", "#ad1457"];
 const STORE = "cellkeeper-cell-history";
 // Room the rest of the page takes around each view's plot (toolbar, card header, axis, spread

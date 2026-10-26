@@ -116,8 +116,9 @@ export function fmtDuration(hours) {
 // Shared look: card padding, small caps labels, big numbers.
 export const baseStyles = css`
   :host {
-    --ck-charge: var(--energy-battery-in-color, #f06292);
-    --ck-discharge: var(--energy-battery-out-color, #4db6ac);
+    /* Charging green, discharging red, across the dashboard. */
+    --ck-charge: var(--success-color, #43a047);
+    --ck-discharge: var(--error-color, #db4437);
     --ck-good: var(--success-color, #43a047);
     --ck-warn: var(--warning-color, #ffa600);
     --ck-bad: var(--error-color, #db4437);

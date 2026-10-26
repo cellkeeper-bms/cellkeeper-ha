@@ -33,7 +33,7 @@ history, so 24 h opens in about a second, in 2D or 3D. Both fill the window's he
 One page that answers "is the pack OK, and what is it doing?":
 
 - **Pack card**: state of charge on the CellKeeper battery, filled to the level and with the logo's
-  arrow running in or out while it charges or discharges; stored energy and the change over the
+  arrow running in or out while it charges (green) or discharges (red); stored energy and the change over the
   last hour; system and contactor state; a banner for every active warning, critical or fatal
   event; and a chip when a new dashboard version is out.
 - **Power flow**: charging/discharging power with time to full or empty, current and pack and
