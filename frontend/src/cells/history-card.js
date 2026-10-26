@@ -29,7 +29,7 @@ const DEVIATION_STOPS = (dark) => ["#00695c", "#4db6ac", dark ? "#2b2b2b" : "#ee
 const STORE = "cellkeeper-cell-history";
 // Room the rest of the page takes around each view's plot (toolbar, card header, axis, spread
 // strip, footer), so that "auto" fills the window without scrolling.
-const AROUND_2D = 250;
+const AROUND_2D = 310;
 const AROUND_3D = 175;
 
 function remembered() {
@@ -433,40 +433,50 @@ class CellKeeperCellHistoryCard extends PackCard {
       }
     }
 
-    // Spread between the highest and lowest cell.
-    if (strip) {
-      const sh = strip.clientHeight;
-      strip.width = Math.round(w * dpr);
-      strip.height = Math.round(sh * dpr);
-      const s = strip.getContext("2d");
-      s.setTransform(dpr, 0, 0, dpr, 0, 0);
-      s.clearRect(0, 0, w, sh);
-      const spread = Array.from(d.hi, (v, k) => v - d.lo[k]);
-      const peak = Math.max(0.005, ...spread.filter((v) => !Number.isNaN(v)));
-      this._peak = peak;
-      const color = getComputedStyle(this).getPropertyValue("--primary-color").trim() || "#03a9f4";
-      s.fillStyle = color;
-      s.globalAlpha = 0.35;
-      spread.forEach((v, k) => {
-        if (Number.isNaN(v)) return;
-        const y = sh - (v / peak) * (sh - 2);
-        s.fillRect(k * cw, y, Math.ceil(cw), sh - y);
-      });
-      s.globalAlpha = 1;
-      s.strokeStyle = color;
-      s.lineWidth = 1.5;
-      s.beginPath();
-      let pen = false;
-      spread.forEach((v, k) => {
-        if (Number.isNaN(v)) return (pen = false);
-        const x = (k + 0.5) * cw;
-        const y = sh - (v / peak) * (sh - 2);
-        pen ? s.lineTo(x, y) : s.moveTo(x, y);
-        pen = true;
-      });
-      s.stroke();
+    // Spread between the highest and lowest cell, in grey; the BMS's SOC under it in the primary
+    // colour, as on the pack card's chart and in 3D.
+    const style = getComputedStyle(this);
+    const spread = Array.from(d.hi, (v, k) => v - d.lo[k]);
+    const peak = Math.max(0.005, ...spread.filter((v) => !Number.isNaN(v)));
+    this._peak = peak;
+    this._strip(strip, spread, 0, peak, style.getPropertyValue("--secondary-text-color").trim() || "#888", w, cw, dpr);
+    const socStrip = this.renderRoot.querySelector("canvas.soc");
+    if (socStrip && d.soc) {
+      const { socLo, socHi } = this._socScale();
+      this._strip(socStrip, d.soc, socLo, socHi, style.getPropertyValue("--primary-color").trim() || "#03a9f4", w, cw, dpr);
     }
     this.requestUpdate();
+  }
+
+  // A filled line of `values` (one per interval) between lo at the bottom and hi at the top.
+  _strip(canvas, values, lo, hi, color, w, cw, dpr) {
+    if (!canvas) return;
+    const sh = canvas.clientHeight;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(sh * dpr);
+    const g = canvas.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, sh);
+    const yOf = (v) => sh - Math.min(1, Math.max(0, (v - lo) / (hi - lo || 1))) * (sh - 2);
+    g.fillStyle = color;
+    g.globalAlpha = 0.3;
+    values.forEach((v, k) => {
+      if (Number.isNaN(v)) return;
+      const y = yOf(v);
+      g.fillRect(k * cw, y, Math.ceil(cw), sh - y);
+    });
+    g.globalAlpha = 1;
+    g.strokeStyle = color;
+    g.lineWidth = 1.5;
+    g.beginPath();
+    let pen = false;
+    values.forEach((v, k) => {
+      if (Number.isNaN(v)) return (pen = false);
+      const x = (k + 0.5) * cw;
+      pen ? g.lineTo(x, yOf(v)) : g.moveTo(x, yOf(v));
+      pen = true;
+    });
+    g.stroke();
   }
 
   _pick(ev, withRow) {
@@ -639,6 +649,16 @@ class CellKeeperCellHistoryCard extends PackCard {
               ${this._peak && d?.cols ? html`<span class="peak num">peak ${fmt(this.hass, this._peak * 1000, 0)} mV</span>` : ""}
             </div>
           </div>
+          ${d?.soc
+            ? html`<div class="plot">
+                <div class="yaxis side">SOC</div>
+                <div class="area">
+                  <canvas class="soc" @pointermove=${(ev) => this._pick(ev, false)} @pointerleave=${() => (this._hover = undefined)}></canvas>
+                  ${hv ? html`<i class="guide" style="left:${(hv.k / d.cols) * 100}%;width:${100 / d.cols}%"></i>` : ""}
+                  <span class="peak num">${this._socScale().socLo}–${this._socScale().socHi} %</span>
+                </div>
+              </div>`
+            : ""}
           <div class="foot">
             ${this._ramp()}
             ${this._marks && d?.marks?.some((m) => m === 1)
@@ -737,7 +757,8 @@ class CellKeeperCellHistoryCard extends PackCard {
         cursor: crosshair;
         touch-action: pan-y;
       }
-      canvas.spread {
+      canvas.spread,
+      canvas.soc {
         height: 56px;
         border-top: 1px solid var(--ck-line);
       }
