@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
+    "build:dev": "node build.mjs --dev",
     "watch": "node build.mjs --watch",
     "check": "node test/generate.mjs"
   },

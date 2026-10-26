@@ -268,15 +268,29 @@ dashboards:
 
 ```sh
 npm install
-npm run build    # writes dist/cellkeeper-dashboard.js
-npm run check    # generates the dashboard from test/fixtures/ck0.json and checks it
+npm run build      # writes dist/cellkeeper-dashboard.js
+npm run build:dev  # writes dist-dev/cellkeeper-dashboard-dev.js, the test copy
+npm run check      # generates the dashboard from test/fixtures/ck0.json and checks it
 ```
 
-`npm run watch` rebuilds on every change. To try a build, copy `dist/cellkeeper-dashboard.js` to
-`/config/www/cellkeeper-dashboard/` on a test system and bump the `?v=` on its resource URL.
+`npm run watch` rebuilds on every change.
+
+**Trying a build beside the HACS release.** Home Assistant loads every dashboard resource on every
+dashboard, so two copies of the same cards race and either may win. `npm run build:dev` makes a
+copy with every card renamed (`cellkeeper-dev-…`) and its own strategy, `custom:cellkeeper-dev`:
+
+1. Copy `dist-dev/cellkeeper-dashboard-dev.js` to `/config/www/cellkeeper-dashboard-dev/`.
+2. Add it as a resource, `/local/cellkeeper-dashboard-dev/cellkeeper-dashboard-dev.js?v=1`
+   (JavaScript module), and bump the `?v=` after each copy.
+3. Make an admin-only dashboard with `strategy: {type: custom:cellkeeper-dev, prefix: ck0}`.
+
+That dashboard always runs the test copy, and the release's dashboards never do. The test copy keeps
+its own remembered view settings.
 
 To release: bump `version` in `package.json`, `npm run build`, commit `dist/`, then tag `vX.Y.Z`
-and publish a GitHub release; HACS picks up releases.
+and publish a GitHub release without attaching the file (HACS installs `dist/` from the tag;
+GitHub's download redirect for attached files currently sends a header longer than Home Assistant
+accepts).
 
 ## License
 
