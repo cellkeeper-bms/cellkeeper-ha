@@ -29,7 +29,7 @@ const DEVIATION_STOPS = (dark) => ["#00695c", "#4db6ac", dark ? "#2b2b2b" : "#ee
 const STORE = "cellkeeper-cell-history";
 // Room the rest of the page takes around each view's plot (toolbar, card header, axis, spread
 // strip, footer), so that "auto" fills the window without scrolling.
-const AROUND_2D = 310;
+const AROUND_2D = 370;
 const AROUND_3D = 175;
 
 function remembered() {
@@ -169,9 +169,10 @@ class CellKeeperCellHistoryCard extends PackCard {
       ]);
       if (range !== this._range) return;
       // The BMS's own SOC (not the scaled one sent to the inverter), on the same time grid.
-      const soc = this.has("soc") && data.cols
-        ? await fetchSeries(this.hass, this.eid("soc"), range, data).catch(() => undefined)
-        : undefined;
+      // The pack's power in W (positive charging), for its strip.
+      const series = (key, units) =>
+        this.has(key) && data.cols ? fetchSeries(this.hass, this.eid(key), range, data, units).catch(() => undefined) : undefined;
+      const [soc, power] = await Promise.all([series("soc"), series("power_w", { power: "W" })]);
       if (range !== this._range) return;
       this._data = {
         ...data,
@@ -180,6 +181,7 @@ class CellKeeperCellHistoryCard extends PackCard {
         ...columnStats(data.z, data.cols),
         marks: states ? balanceMarks(data, cells, states, levels) : undefined,
         soc: soc?.some((v) => !Number.isNaN(v)) ? soc : undefined,
+        power: power?.some((v) => !Number.isNaN(v)) ? power : undefined,
       };
       this._error = undefined;
     } catch (err) {
@@ -445,6 +447,7 @@ class CellKeeperCellHistoryCard extends PackCard {
       const { socLo, socHi } = this._socScale();
       this._strip(socStrip, d.soc, socLo, socHi, style.getPropertyValue("--primary-color").trim() || "#03a9f4", w, cw, dpr);
     }
+    this._powerStrip(this.renderRoot.querySelector("canvas.power"), d.power, style, w, cw, dpr);
     this.requestUpdate();
   }
 
@@ -477,6 +480,52 @@ class CellKeeperCellHistoryCard extends PackCard {
       pen = true;
     });
     g.stroke();
+  }
+
+  // Power around a zero line: charging up in the charge colour, discharging down in the discharge
+  // colour, as on the pack card's chart; the scale is the larger of the two.
+  _powerStrip(canvas, power, style, w, cw, dpr) {
+    if (!canvas || !power) return;
+    const sh = canvas.clientHeight;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(sh * dpr);
+    const g = canvas.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, sh);
+    const { max } = this._powerScale();
+    const mid = sh / 2;
+    const yOf = (v) => mid - (Math.max(-max, Math.min(max, v)) / max) * (mid - 1);
+    const charge = style.getPropertyValue("--energy-battery-in-color").trim() || "#f06292";
+    const discharge = style.getPropertyValue("--energy-battery-out-color").trim() || "#4db6ac";
+    g.globalAlpha = 0.55;
+    power.forEach((v, k) => {
+      if (Number.isNaN(v)) return;
+      const y = yOf(v);
+      g.fillStyle = v >= 0 ? charge : discharge;
+      g.fillRect(k * cw, Math.min(y, mid), Math.ceil(cw), Math.abs(mid - y));
+    });
+    g.globalAlpha = 0.35;
+    g.fillStyle = style.getPropertyValue("--primary-text-color").trim() || "#888";
+    g.fillRect(0, Math.round(mid), w, 1);
+    g.globalAlpha = 1;
+  }
+
+  // The power strip's scale: the largest charge or discharge in the range, and both for its label.
+  _powerScale() {
+    const values = [...(this._data?.power ?? [])].filter((v) => !Number.isNaN(v));
+    const top = Math.max(0, ...values);
+    const bottom = Math.min(0, ...values);
+    return { max: Math.max(top, -bottom, 1), top, bottom };
+  }
+
+  _kw(w) {
+    return Math.abs(w) >= 1000 ? `${fmt(this.hass, w / 1000, 1)} kW` : `${fmt(this.hass, w, 0)} W`;
+  }
+
+  _powerText(w) {
+    const idle = Math.abs(w) < 20;
+    return html`<div class="num">Power ${idle ? "idle" : html`<span style="color:${w > 0 ? "var(--ck-charge)" : "var(--ck-discharge)"}"
+      >${w > 0 ? "+" : "−"}${this._kw(Math.abs(w))}</span> ${w > 0 ? "charging" : "discharging"}`}</div>`;
   }
 
   _pick(ev, withRow) {
@@ -549,6 +598,7 @@ class CellKeeperCellHistoryCard extends PackCard {
         : ""}
       <div class="num">Spread ${Number.isNaN(spreadMv) ? "–" : html`${fmt(this.hass, spreadMv, 0)} mV`}</div>
       ${d.soc && !Number.isNaN(d.soc[hv.k]) ? html`<div class="num">SOC ${fmt(this.hass, d.soc[hv.k], 1)} %</div>` : ""}
+      ${d.power && !Number.isNaN(d.power[hv.k]) ? this._powerText(d.power[hv.k]) : ""}
     </div>`;
   }
 
@@ -659,6 +709,19 @@ class CellKeeperCellHistoryCard extends PackCard {
                 </div>
               </div>`
             : ""}
+          ${d?.power
+            ? html`<div class="plot">
+                <div class="yaxis side">Power</div>
+                <div class="area">
+                  <canvas class="power" @pointermove=${(ev) => this._pick(ev, false)} @pointerleave=${() => (this._hover = undefined)}></canvas>
+                  ${hv ? html`<i class="guide" style="left:${(hv.k / d.cols) * 100}%;width:${100 / d.cols}%"></i>` : ""}
+                  <span class="peak num">
+                    <span style="color:var(--ck-charge)">+${this._kw(this._powerScale().top)}</span> /
+                    <span style="color:var(--ck-discharge)">−${this._kw(-this._powerScale().bottom)}</span>
+                  </span>
+                </div>
+              </div>`
+            : ""}
           <div class="foot">
             ${this._ramp()}
             ${this._marks && d?.marks?.some((m) => m === 1)
@@ -758,7 +821,8 @@ class CellKeeperCellHistoryCard extends PackCard {
         touch-action: pan-y;
       }
       canvas.spread,
-      canvas.soc {
+      canvas.soc,
+      canvas.power {
         height: 56px;
         border-top: 1px solid var(--ck-line);
       }

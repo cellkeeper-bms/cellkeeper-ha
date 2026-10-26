@@ -95,8 +95,9 @@ export function fetchCellHistory(hass, cells, range) {
 }
 
 // One sensor's means over `range` on the cells' time grid (from fetchCellHistory): a Float32Array
-// with NaN where there is no statistic. Used for the BMS's SOC.
-export async function fetchSeries(hass, id, range, grid) {
+// with NaN where there is no statistic. Used for the BMS's SOC and the pack's power; `units` asks
+// for a unit whatever the sensor displays (e.g. { power: "W" }).
+export async function fetchSeries(hass, id, range, grid, units) {
   const points = await cached(["series", range, id].join(","), async () => {
     const stats = await hass.callWS({
       type: "recorder/statistics_during_period",
@@ -104,6 +105,7 @@ export async function fetchSeries(hass, id, range, grid) {
       statistic_ids: [id],
       period: RANGES[range].period,
       types: ["mean"],
+      ...(units && { units }),
     });
     return (stats[id] ?? []).filter((p) => Number.isFinite(p.mean)).map((p) => [p.start, p.mean]);
   });
