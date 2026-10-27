@@ -4,7 +4,7 @@
   "after_dependencies": ["backup", "esphome", "lovelace"],
   "codeowners": ["@clowrey"],
   "config_flow": true,
-  "dependencies": ["frontend", "http", "recorder", "repairs", "websocket_api"],
+  "dependencies": ["frontend", "http", "recorder", "websocket_api"],
   "documentation": "https://github.com/clowrey/CellKeeper-HA",
   "integration_type": "service",
   "iot_class": "calculated",

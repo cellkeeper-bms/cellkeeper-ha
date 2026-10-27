@@ -16,8 +16,7 @@ export function dashboardUpdate(hass) {
   for (const [id, entity] of Object.entries(hass.entities ?? {})) {
     if (entity.platform !== "hacs" || !id.startsWith("update.")) continue;
     const url = hass.states[id]?.attributes.release_url ?? "";
-    // Not the old separate dashboard install (CellKeeper-Dashboard), if that's still there.
-    if (/\/CellKeeper-HA\b/i.test(url) || (id === "update.cellkeeper_update" && !/CellKeeper-Dashboard/i.test(url))) {
+    if (/\/CellKeeper-HA\b/i.test(url) || id === "update.cellkeeper_update") {
       cachedId = id;
       return hass.states[id];
     }

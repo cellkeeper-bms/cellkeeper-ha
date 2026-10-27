@@ -27,14 +27,6 @@ an **Update** button on the System view). An update needs a restart of Home Assi
 **Manually:** copy `custom_components/cellkeeper` to `/config/custom_components/`, restart, and add
 the integration as in step 3.
 
-### Moving from the separate CellKeeper Dashboard install
-
-The dashboard used to be its own HACS install (CellKeeper-Dashboard, type Dashboard). It's part of
-the integration now. After installing the integration, **Settings → Repairs** shows *The separate
-CellKeeper Dashboard install is still loaded*: submit it to remove its Lovelace resource, then
-remove **CellKeeper Dashboard** in HACS. Your dashboards keep working as they are, since they name
-the same strategy (`custom:cellkeeper`).
-
 ## Naming your packs
 
 CellKeeper entity ids start with the name of the pack's HMI device. Name your first (often only)

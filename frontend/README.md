@@ -2,7 +2,7 @@
 
 The dashboard strategy (`custom:cellkeeper`) and its cards, built with esbuild and Lit. The
 integration serves the build on every page; see the [README](../README.md) for what it shows and
-its options. This folder came from the CellKeeper-Dashboard repository, with its history.
+its options.
 
 ```sh
 npm install

@@ -25,7 +25,7 @@ from homeassistant.util import dt as dt_util
 from .const import DB_DIR, DB_FILE, DOMAIN
 from .dashboards import async_create_dashboards
 from .discovery import find_packs
-from .frontend import async_check_old_install, async_remove_frontend, async_setup_frontend
+from .frontend import async_remove_frontend, async_setup_frontend
 from .pack import PackLogger
 from .runtime import Runtime
 from .store import Store
@@ -59,7 +59,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: CellKeeperConfigEntry) -
     version = (await async_get_integration(hass, DOMAIN)).version
     url = await async_setup_frontend(hass, str(version))
     entry.async_on_unload(lambda: async_remove_frontend(hass, url))
-    entry.async_create_background_task(hass, async_check_old_install(hass), "cellkeeper old dashboard check")
 
     async def start_packs() -> None:
         # The recorder's history is read on the first start, so wait until it can be.

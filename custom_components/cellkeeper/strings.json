@@ -10,19 +10,6 @@
       "single_instance_allowed": "CellKeeper is already set up; it logs every pack it finds."
     }
   },
-  "issues": {
-    "old_dashboard_install": {
-      "title": "The separate CellKeeper Dashboard install is still loaded",
-      "fix_flow": {
-        "step": {
-          "confirm": {
-            "title": "Remove the separate CellKeeper Dashboard install",
-            "description": "The dashboard now comes with the CellKeeper integration. The separate install (HACS, CellKeeper Dashboard) is still a Lovelace resource ({url}), so two copies of the same cards load.\n\nSubmit to remove that resource. Your dashboards keep working, on the integration's copy. Then remove CellKeeper Dashboard in HACS too."
-          }
-        }
-      }
-    }
-  },
   "options": {
     "step": {
       "init": {
