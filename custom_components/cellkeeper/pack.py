@@ -42,7 +42,7 @@ HA_START_S = 120
 
 # The state sensors that make records (records.py), by role.
 RECORD_ROLES = ("contactor", "system_state", "system_request", "millis", "uptime_hmi", "bms_firmware",
-                "hmi_firmware", "balance_charge")
+                "hmi_firmware", "balance_charge", "module_ids")
 # These change every second or so: the recorder's history of them is read a piece at a time.
 FAST_ROLES = ("millis", "uptime_hmi")
 FAST_CHUNK_S = 6 * 3600

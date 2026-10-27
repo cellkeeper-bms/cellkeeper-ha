@@ -81,7 +81,7 @@ MIGRATIONS: list[str] = [
         prefix TEXT NOT NULL,
         t REAL NOT NULL,              -- when it happened (a restart: when it started)
         kind TEXT NOT NULL,           -- contactor, system_state, system_request, restart, firmware,
-                                      -- setting, balance_charge; daily, full_charge, empty (health.py)
+                                      -- setting, balance_charge, modules; daily, full_charge, empty
         key TEXT,                     -- contactor: closed, opened, failed; restart and firmware: bms, hmi;
                                       -- setting: the setting (max_charge_current)
         old TEXT,

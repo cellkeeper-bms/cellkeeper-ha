@@ -143,6 +143,23 @@ check(
     recs[2].detail.includes("12 mV → 3 mV") && recs[2].detail.includes("1 cell bled") && recs[3].bms
 );
 
+const { parseState } = await import("../src/events/model.js");
+const { decodeEventData } = await import("../src/events/data.js");
+const { EVENT_CATALOG } = await import("../src/events/catalog.js");
+const ps = parseState("WARNING (7) d=fa0ffff2d4c");
+check("event data: the state's d= suffix parses", ps.active && ps.count === 7 && ps.data === "FA0FFFF2D4C" && parseState("INACTIVE (2) d=1F").data === "1F");
+const oc = Object.values(EVENT_CATALOG).find((e) => e.type === "OVERCURRENT_DISCHARGING");
+const stale = Object.values(EVENT_CATALOG).find((e) => e.type === "CURRENT_STALE");
+const temp = Object.values(EVENT_CATALOG).find((e) => e.type === "BATTERY_TEMPERATURE_LOW");
+// −52.4 A (0xFFFF3878 as i32 mA) over a 25.0 A limit (250 dA at bit 32)
+const ocText = decodeEventData(oc, "000000FAFFFF3878");
+check(
+  "event data: an overcurrent's current and limit, a stale code, a negative temperature",
+  ocText.includes("current −51.1 A") && ocText.includes("limit 25.0 A") &&
+    decodeEventData(stale, "1000000000000000") === "no fresh current" &&
+    decodeEventData(temp, "FFFFFFCE").includes("−5.0 °C")
+);
+
 const { withoutGlitches } = await import("../src/events/records.js");
 const glitchy = withoutGlitches([
   { id: 1, t: 1000, kind: "setting", key: "minimum_balancing_voltage", old: "3770", new: "1", data: {} },

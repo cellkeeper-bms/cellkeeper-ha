@@ -121,3 +121,14 @@ def test_build_snapshot():
     assert (s["cell_min"][i - 1], s["cell_min_n"][i - 1]) == (3.30, 1)
     assert (s["cell_min"][i], s["cell_min_n"][i], s["cell_max_n"][i]) == (3.10, 1, 2)
     assert snap["start"] == pytest.approx(start)
+
+
+def test_module_ids():
+    tr = tracker()
+    # The IDs when logging began are recorded, without a known time.
+    (row,) = inserts(tr.feed(0, "module_ids", "023 · pack type 34"))
+    assert (row["kind"], row["old"], row["new"], row["time_known"]) == ("modules", None, "023 · pack type 34", False)
+    assert tr.feed(10, "module_ids", "023 · pack type 34") == []
+    # A module swapped.
+    (row,) = inserts(tr.feed(20, "module_ids", "024 · pack type 35"))
+    assert (row["old"], row["new"], row["time_known"]) == ("023 · pack type 34", "024 · pack type 35", True)

@@ -3,7 +3,8 @@
 //
 // Keyed by the event sensor's id after sensor.<prefix>_event_. level is the firmware's starting
 // level; escalate is {count} (a warning turns fatal after that many occurrences) or {ms}
-// (a critical turns fatal after being active that long).
+// (a critical turns fatal after being active that long). data is how the event's data is laid
+// out (events.h's "// data" lines): its fields, low bits first, or codes for fixed values.
 export const EVENT_CATALOG = {
   "fatal_pos_stuck_open": {
     "type": "CONTACTOR_POS_STUCK_OPEN",
@@ -14,7 +15,20 @@ export const EVENT_CATALOG = {
       "count": 20
     },
     "area": "Contactors",
-    "desc": "The positive contactor didn't close when driven."
+    "desc": "The positive contactor didn't close when driven.",
+    "data": {
+      "fields": [
+        {
+          "type": "i32",
+          "bit": 0,
+          "unit": "mV",
+          "name": "voltage across it"
+        }
+      ],
+      "codes": {
+        "1000000000000000": "its voltage reading is stale"
+      }
+    }
   },
   "fatal_pos_stuck_closed": {
     "type": "CONTACTOR_POS_STUCK_CLOSED",
@@ -25,7 +39,20 @@ export const EVENT_CATALOG = {
       "ms": 0
     },
     "area": "Contactors",
-    "desc": "The positive contactor still conducts when it should be open (welded?)."
+    "desc": "The positive contactor still conducts when it should be open (welded?).",
+    "data": {
+      "fields": [
+        {
+          "type": "i32",
+          "bit": 0,
+          "unit": "mV",
+          "name": "voltage across it"
+        }
+      ],
+      "codes": {
+        "1000000000000000": "its voltage reading is stale"
+      }
+    }
   },
   "fatal_neg_stuck_open": {
     "type": "CONTACTOR_NEG_STUCK_OPEN",
@@ -36,7 +63,20 @@ export const EVENT_CATALOG = {
       "count": 20
     },
     "area": "Contactors",
-    "desc": "The negative contactor didn't close when driven."
+    "desc": "The negative contactor didn't close when driven.",
+    "data": {
+      "fields": [
+        {
+          "type": "i32",
+          "bit": 0,
+          "unit": "mV",
+          "name": "voltage across it"
+        }
+      ],
+      "codes": {
+        "1000000000000000": "its voltage reading is stale"
+      }
+    }
   },
   "fatal_neg_stuck_closed": {
     "type": "CONTACTOR_NEG_STUCK_CLOSED",
@@ -47,7 +87,20 @@ export const EVENT_CATALOG = {
       "ms": 0
     },
     "area": "Contactors",
-    "desc": "The negative contactor still conducts when it should be open (welded?)."
+    "desc": "The negative contactor still conducts when it should be open (welded?).",
+    "data": {
+      "fields": [
+        {
+          "type": "i32",
+          "bit": 0,
+          "unit": "mV",
+          "name": "voltage across it"
+        }
+      ],
+      "codes": {
+        "1000000000000000": "its voltage reading is stale"
+      }
+    }
   },
   "fatal_pre_stuck_open": {
     "type": "CONTACTOR_PRE_STUCK_OPEN",
@@ -58,7 +111,10 @@ export const EVENT_CATALOG = {
       "ms": 0
     },
     "area": "Contactors",
-    "desc": "The precharge contactor didn't close when driven."
+    "desc": "The precharge contactor didn't close when driven.",
+    "data": {
+      "none": true
+    }
   },
   "fatal_pre_stuck_closed": {
     "type": "CONTACTOR_PRE_STUCK_CLOSED",
@@ -69,7 +125,10 @@ export const EVENT_CATALOG = {
       "ms": 0
     },
     "area": "Contactors",
-    "desc": "The precharge contactor still conducts when it should be open."
+    "desc": "The precharge contactor still conducts when it should be open.",
+    "data": {
+      "none": true
+    }
   },
   "critical_pre_voltage_high": {
     "type": "CONTACTOR_PRECHARGE_VOLTAGE_TOO_HIGH",
@@ -80,7 +139,27 @@ export const EVENT_CATALOG = {
       "ms": 0
     },
     "area": "Contactors",
-    "desc": "Precharge ended with too much voltage still across it: the load didn't charge up."
+    "desc": "Precharge ended with too much voltage still across it: the load didn't charge up.",
+    "data": {
+      "fields": [
+        {
+          "type": "i32",
+          "bit": 0,
+          "unit": "mV",
+          "name": "output"
+        },
+        {
+          "type": "i32",
+          "bit": 32,
+          "unit": "mV",
+          "name": "pack or link"
+        }
+      ],
+      "codes": {
+        "2000000000000000": "the output voltage reading is stale",
+        "5000000000000000": "the link voltage reading is stale"
+      }
+    }
   },
   "critical_pre_current_high": {
     "type": "CONTACTOR_PRECHARGE_CURRENT_TOO_HIGH",
@@ -91,7 +170,17 @@ export const EVENT_CATALOG = {
       "ms": 0
     },
     "area": "Contactors",
-    "desc": "Too much current flowed during precharge."
+    "desc": "Too much current flowed during precharge.",
+    "data": {
+      "fields": [
+        {
+          "type": "i32",
+          "bit": 0,
+          "unit": "mA",
+          "name": "current rise"
+        }
+      ]
+    }
   },
   "critical_pos_unexpected_open": {
     "type": "CONTACTOR_POS_UNEXPECTED_OPEN",
@@ -99,7 +188,20 @@ export const EVENT_CATALOG = {
     "name": "POS Unexpected Open",
     "level": "WARNING",
     "area": "Contactors",
-    "desc": "The positive contactor opened while it should have been closed."
+    "desc": "The positive contactor opened while it should have been closed.",
+    "data": {
+      "fields": [
+        {
+          "type": "i32",
+          "bit": 0,
+          "unit": "mV",
+          "name": "voltage across it"
+        }
+      ],
+      "codes": {
+        "1000000000000000": "its voltage reading is stale"
+      }
+    }
   },
   "critical_neg_unexpected_open": {
     "type": "CONTACTOR_NEG_UNEXPECTED_OPEN",
@@ -107,7 +209,21 @@ export const EVENT_CATALOG = {
     "name": "NEG Unexpected Open",
     "level": "WARNING",
     "area": "Contactors",
-    "desc": "The negative contactor opened while it should have been closed."
+    "desc": "The negative contactor opened while it should have been closed.",
+    "data": {
+      "fields": [
+        {
+          "type": "i32",
+          "bit": 0,
+          "unit": "mV",
+          "name": "voltage across it"
+        }
+      ],
+      "codes": {
+        "2000000000000000": "its voltage reading is stale",
+        "3000000000000000": "its voltage reading is stale (closing)"
+      }
+    }
   },
   "critical_closing_failed": {
     "type": "CONTACTOR_CLOSING_FAILED",
@@ -118,7 +234,16 @@ export const EVENT_CATALOG = {
       "count": 20
     },
     "area": "Contactors",
-    "desc": "A contactor closing sequence failed a check and was abandoned."
+    "desc": "A contactor closing sequence failed a check and was abandoned.",
+    "data": {
+      "codes": {
+        "1000000000000000": "precharge failed",
+        "2000000000000000": "weld test: something conducts with both open",
+        "3000000000000000": "the negative contactor didn't close",
+        "4000000000000000": "weld test: the positive conducts with only the negative closed",
+        "5000000000000000": "the positive contactor didn't close"
+      }
+    }
   },
   "warning_supply_voltage_stale": {
     "type": "SUPPLY_VOLTAGE_STALE",
@@ -129,7 +254,15 @@ export const EVENT_CATALOG = {
       "ms": 2000
     },
     "area": "Supplies",
-    "desc": "No fresh reading of the board's supply voltages."
+    "desc": "No fresh reading of the board's supply voltages.",
+    "data": {
+      "codes": {
+        "1000000000000000": "the 3.3 V reading is stale",
+        "2000000000000000": "the 5 V reading is stale",
+        "3000000000000000": "the 12 V reading is stale",
+        "4000000000000000": "the contactor supply reading is stale"
+      }
+    }
   },
   "warning_battery_voltage_stale": {
     "type": "BATTERY_VOLTAGE_STALE",
@@ -140,7 +273,12 @@ export const EVENT_CATALOG = {
       "ms": 2000
     },
     "area": "Voltage",
-    "desc": "No fresh pack voltage reading."
+    "desc": "No fresh pack voltage reading.",
+    "data": {
+      "codes": {
+        "1000000000000000": "no fresh pack voltage"
+      }
+    }
   },
   "warning_battery_temperature_stale": {
     "type": "BATTERY_TEMPERATURE_STALE",
@@ -151,7 +289,12 @@ export const EVENT_CATALOG = {
       "ms": 20000
     },
     "area": "Temperature",
-    "desc": "No fresh module temperature readings."
+    "desc": "No fresh module temperature readings.",
+    "data": {
+      "codes": {
+        "1000000000000000": "no fresh temperatures"
+      }
+    }
   },
   "warning_current_stale": {
     "type": "CURRENT_STALE",
@@ -162,7 +305,13 @@ export const EVENT_CATALOG = {
       "ms": 2000
     },
     "area": "Current",
-    "desc": "No fresh current sensor reading."
+    "desc": "No fresh current sensor reading.",
+    "data": {
+      "codes": {
+        "1000000000000000": "no fresh current",
+        "4000000000000000": "no fresh current (contactors)"
+      }
+    }
   },
   "warning_cell_voltages_stale": {
     "type": "CELL_VOLTAGES_STALE",
@@ -173,7 +322,12 @@ export const EVENT_CATALOG = {
       "ms": 1000
     },
     "area": "Voltage",
-    "desc": "No fresh cell voltage readings from the battery monitor boards."
+    "desc": "No fresh cell voltage readings from the battery monitor boards.",
+    "data": {
+      "codes": {
+        "1000000000000000": "no fresh cell voltages"
+      }
+    }
   },
   "critical_3v3_low": {
     "type": "SUPPLY_VOLTAGE_3V3_LOW",
@@ -181,7 +335,17 @@ export const EVENT_CATALOG = {
     "name": "3V3 Low",
     "level": "WARNING",
     "area": "Supplies",
-    "desc": "The board's 3.3 V supply is low."
+    "desc": "The board's 3.3 V supply is low.",
+    "data": {
+      "fields": [
+        {
+          "type": "u16",
+          "bit": 0,
+          "unit": "mV",
+          "name": "3.3 V supply"
+        }
+      ]
+    }
   },
   "critical_3v3_high": {
     "type": "SUPPLY_VOLTAGE_3V3_HIGH",
@@ -189,7 +353,17 @@ export const EVENT_CATALOG = {
     "name": "3V3 High",
     "level": "WARNING",
     "area": "Supplies",
-    "desc": "The board's 3.3 V supply is high."
+    "desc": "The board's 3.3 V supply is high.",
+    "data": {
+      "fields": [
+        {
+          "type": "u16",
+          "bit": 0,
+          "unit": "mV",
+          "name": "3.3 V supply"
+        }
+      ]
+    }
   },
   "warning_5v_low": {
     "type": "SUPPLY_VOLTAGE_5V_LOW",
@@ -197,7 +371,17 @@ export const EVENT_CATALOG = {
     "name": "5V Low",
     "level": "WARNING",
     "area": "Supplies",
-    "desc": "The board's 5 V supply is low."
+    "desc": "The board's 5 V supply is low.",
+    "data": {
+      "fields": [
+        {
+          "type": "u16",
+          "bit": 0,
+          "unit": "mV",
+          "name": "5 V supply"
+        }
+      ]
+    }
   },
   "warning_5v_high": {
     "type": "SUPPLY_VOLTAGE_5V_HIGH",
@@ -205,7 +389,17 @@ export const EVENT_CATALOG = {
     "name": "5V High",
     "level": "WARNING",
     "area": "Supplies",
-    "desc": "The board's 5 V supply is high."
+    "desc": "The board's 5 V supply is high.",
+    "data": {
+      "fields": [
+        {
+          "type": "u16",
+          "bit": 0,
+          "unit": "mV",
+          "name": "5 V supply"
+        }
+      ]
+    }
   },
   "warning_12v_low": {
     "type": "SUPPLY_VOLTAGE_12V_LOW",
@@ -213,7 +407,17 @@ export const EVENT_CATALOG = {
     "name": "12V Low",
     "level": "WARNING",
     "area": "Supplies",
-    "desc": "The 12 V supply is low."
+    "desc": "The 12 V supply is low.",
+    "data": {
+      "fields": [
+        {
+          "type": "u16",
+          "bit": 0,
+          "unit": "mV",
+          "name": "12 V supply"
+        }
+      ]
+    }
   },
   "warning_12v_high": {
     "type": "SUPPLY_VOLTAGE_12V_HIGH",
@@ -221,7 +425,17 @@ export const EVENT_CATALOG = {
     "name": "12V High",
     "level": "WARNING",
     "area": "Supplies",
-    "desc": "The 12 V supply is high."
+    "desc": "The 12 V supply is high.",
+    "data": {
+      "fields": [
+        {
+          "type": "u16",
+          "bit": 0,
+          "unit": "mV",
+          "name": "12 V supply"
+        }
+      ]
+    }
   },
   "critical_ctr_supply_low": {
     "type": "SUPPLY_VOLTAGE_CONTACTOR_LOW",
@@ -229,7 +443,17 @@ export const EVENT_CATALOG = {
     "name": "Ctr Supply Low",
     "level": "WARNING",
     "area": "Supplies",
-    "desc": "The contactor supply is low; contactors may drop out."
+    "desc": "The contactor supply is low; contactors may drop out.",
+    "data": {
+      "fields": [
+        {
+          "type": "u16",
+          "bit": 0,
+          "unit": "mV",
+          "name": "contactor supply"
+        }
+      ]
+    }
   },
   "fatal_ctr_supply_very_low": {
     "type": "SUPPLY_VOLTAGE_CONTACTOR_VERY_LOW",
@@ -240,7 +464,17 @@ export const EVENT_CATALOG = {
       "ms": 5000
     },
     "area": "Contactors",
-    "desc": "The contactor supply is too low to hold the contactors reliably."
+    "desc": "The contactor supply is too low to hold the contactors reliably.",
+    "data": {
+      "fields": [
+        {
+          "type": "u16",
+          "bit": 0,
+          "unit": "mV",
+          "name": "contactor supply"
+        }
+      ]
+    }
   },
   "warning_ctr_supply_high": {
     "type": "SUPPLY_VOLTAGE_CONTACTOR_HIGH",
@@ -248,7 +482,17 @@ export const EVENT_CATALOG = {
     "name": "Ctr Supply High",
     "level": "WARNING",
     "area": "Supplies",
-    "desc": "The contactor supply is high."
+    "desc": "The contactor supply is high.",
+    "data": {
+      "fields": [
+        {
+          "type": "u16",
+          "bit": 0,
+          "unit": "mV",
+          "name": "contactor supply"
+        }
+      ]
+    }
   },
   "warning_battery_voltage_high": {
     "type": "BATTERY_VOLTAGE_HIGH",
@@ -256,7 +500,17 @@ export const EVENT_CATALOG = {
     "name": "Battery Voltage High",
     "level": "WARNING",
     "area": "Voltage",
-    "desc": "The pack voltage is above its normal range."
+    "desc": "The pack voltage is above its normal range.",
+    "data": {
+      "fields": [
+        {
+          "type": "i32",
+          "bit": 0,
+          "unit": "mV",
+          "name": "pack"
+        }
+      ]
+    }
   },
   "critical_battery_voltage_very_high": {
     "type": "BATTERY_VOLTAGE_VERY_HIGH",
@@ -267,7 +521,17 @@ export const EVENT_CATALOG = {
       "ms": 1000
     },
     "area": "Voltage",
-    "desc": "The pack voltage is far above its normal range."
+    "desc": "The pack voltage is far above its normal range.",
+    "data": {
+      "fields": [
+        {
+          "type": "i32",
+          "bit": 0,
+          "unit": "mV",
+          "name": "pack"
+        }
+      ]
+    }
   },
   "warning_battery_voltage_low": {
     "type": "BATTERY_VOLTAGE_LOW",
@@ -278,7 +542,17 @@ export const EVENT_CATALOG = {
       "ms": 3600000
     },
     "area": "Voltage",
-    "desc": "The pack voltage is below its normal range; a tiny discharge mustn't drain it, so this escalates after an hour."
+    "desc": "The pack voltage is below its normal range; a tiny discharge mustn't drain it, so this escalates after an hour.",
+    "data": {
+      "fields": [
+        {
+          "type": "i32",
+          "bit": 0,
+          "unit": "mV",
+          "name": "pack"
+        }
+      ]
+    }
   },
   "critical_battery_voltage_very_low": {
     "type": "BATTERY_VOLTAGE_VERY_LOW",
@@ -289,7 +563,17 @@ export const EVENT_CATALOG = {
       "ms": 1000
     },
     "area": "Voltage",
-    "desc": "The pack voltage is far below its normal range."
+    "desc": "The pack voltage is far below its normal range.",
+    "data": {
+      "fields": [
+        {
+          "type": "i32",
+          "bit": 0,
+          "unit": "mV",
+          "name": "pack"
+        }
+      ]
+    }
   },
   "warning_cell_voltage_high": {
     "type": "CELL_VOLTAGE_HIGH",
@@ -297,7 +581,17 @@ export const EVENT_CATALOG = {
     "name": "Cell Voltage High",
     "level": "WARNING",
     "area": "Voltage",
-    "desc": "A cell is above the soft max."
+    "desc": "A cell is above the soft max.",
+    "data": {
+      "fields": [
+        {
+          "type": "i16",
+          "bit": 0,
+          "unit": "mV",
+          "name": "highest cell"
+        }
+      ]
+    }
   },
   "critical_cell_voltage_very_high": {
     "type": "CELL_VOLTAGE_VERY_HIGH",
@@ -308,7 +602,17 @@ export const EVENT_CATALOG = {
       "ms": 1000
     },
     "area": "Voltage",
-    "desc": "A cell is above the firmware's hard max."
+    "desc": "A cell is above the firmware's hard max.",
+    "data": {
+      "fields": [
+        {
+          "type": "i16",
+          "bit": 0,
+          "unit": "mV",
+          "name": "highest cell"
+        }
+      ]
+    }
   },
   "warning_cell_voltage_low": {
     "type": "CELL_VOLTAGE_LOW",
@@ -316,7 +620,17 @@ export const EVENT_CATALOG = {
     "name": "Cell Voltage Low",
     "level": "WARNING",
     "area": "Voltage",
-    "desc": "A cell is below the soft min."
+    "desc": "A cell is below the soft min.",
+    "data": {
+      "fields": [
+        {
+          "type": "i16",
+          "bit": 0,
+          "unit": "mV",
+          "name": "lowest cell"
+        }
+      ]
+    }
   },
   "critical_cell_voltage_very_low": {
     "type": "CELL_VOLTAGE_VERY_LOW",
@@ -327,7 +641,17 @@ export const EVENT_CATALOG = {
       "ms": 1000
     },
     "area": "Voltage",
-    "desc": "A cell is below the firmware's hard min."
+    "desc": "A cell is below the firmware's hard min.",
+    "data": {
+      "fields": [
+        {
+          "type": "i16",
+          "bit": 0,
+          "unit": "mV",
+          "name": "lowest cell"
+        }
+      ]
+    }
   },
   "warning_soft_charge_exceeded": {
     "type": "SOFT_CHARGE_BUFFER_EXCEEDED",
@@ -338,7 +662,17 @@ export const EVENT_CATALOG = {
       "ms": 1000
     },
     "area": "Voltage",
-    "desc": "Too much charge went in (or out) past the soft limits."
+    "desc": "Too much charge went in (or out) past the soft limits.",
+    "data": {
+      "fields": [
+        {
+          "type": "i32",
+          "bit": 0,
+          "unit": "dC",
+          "name": "charge past the soft limits"
+        }
+      ]
+    }
   },
   "critical_overcurrent_charging": {
     "type": "OVERCURRENT_CHARGING",
@@ -346,7 +680,23 @@ export const EVENT_CATALOG = {
     "name": "Overcurrent Charging",
     "level": "WARNING",
     "area": "Current",
-    "desc": "Charge current stayed above the allowed limit for too long."
+    "desc": "Charge current stayed above the allowed limit for too long.",
+    "data": {
+      "fields": [
+        {
+          "type": "i32",
+          "bit": 0,
+          "unit": "mA",
+          "name": "current"
+        },
+        {
+          "type": "u16",
+          "bit": 32,
+          "unit": "dA",
+          "name": "limit"
+        }
+      ]
+    }
   },
   "critical_overcurrent_discharging": {
     "type": "OVERCURRENT_DISCHARGING",
@@ -354,7 +704,23 @@ export const EVENT_CATALOG = {
     "name": "Overcurrent Discharging",
     "level": "WARNING",
     "area": "Current",
-    "desc": "Discharge current stayed above the allowed limit for too long."
+    "desc": "Discharge current stayed above the allowed limit for too long.",
+    "data": {
+      "fields": [
+        {
+          "type": "i32",
+          "bit": 0,
+          "unit": "mA",
+          "name": "current"
+        },
+        {
+          "type": "u16",
+          "bit": 32,
+          "unit": "dA",
+          "name": "limit"
+        }
+      ]
+    }
   },
   "warning_battery_temperature_high": {
     "type": "BATTERY_TEMPERATURE_HIGH",
@@ -362,7 +728,17 @@ export const EVENT_CATALOG = {
     "name": "Battery Temperature High",
     "level": "WARNING",
     "area": "Temperature",
-    "desc": "A module is above the soft temperature limit."
+    "desc": "A module is above the soft temperature limit.",
+    "data": {
+      "fields": [
+        {
+          "type": "i32",
+          "bit": 0,
+          "unit": "dDegC",
+          "name": "hottest module"
+        }
+      ]
+    }
   },
   "critical_battery_temperature_very_high": {
     "type": "BATTERY_TEMPERATURE_VERY_HIGH",
@@ -373,7 +749,17 @@ export const EVENT_CATALOG = {
       "ms": 1000
     },
     "area": "Temperature",
-    "desc": "A module is above the hard temperature limit."
+    "desc": "A module is above the hard temperature limit.",
+    "data": {
+      "fields": [
+        {
+          "type": "i32",
+          "bit": 0,
+          "unit": "dDegC",
+          "name": "hottest module"
+        }
+      ]
+    }
   },
   "warning_battery_temperature_low": {
     "type": "BATTERY_TEMPERATURE_LOW",
@@ -381,7 +767,17 @@ export const EVENT_CATALOG = {
     "name": "Battery Temperature Low",
     "level": "WARNING",
     "area": "Temperature",
-    "desc": "A module is below the soft temperature limit."
+    "desc": "A module is below the soft temperature limit.",
+    "data": {
+      "fields": [
+        {
+          "type": "i32",
+          "bit": 0,
+          "unit": "dDegC",
+          "name": "coldest module"
+        }
+      ]
+    }
   },
   "critical_battery_temperature_very_low": {
     "type": "BATTERY_TEMPERATURE_VERY_LOW",
@@ -392,7 +788,17 @@ export const EVENT_CATALOG = {
       "ms": 1000
     },
     "area": "Temperature",
-    "desc": "A module is below the hard temperature limit."
+    "desc": "A module is below the hard temperature limit.",
+    "data": {
+      "fields": [
+        {
+          "type": "i32",
+          "bit": 0,
+          "unit": "dDegC",
+          "name": "coldest module"
+        }
+      ]
+    }
   },
   "critical_voltage_mismatch": {
     "type": "VOLTAGE_MISMATCH",
@@ -403,7 +809,23 @@ export const EVENT_CATALOG = {
       "ms": 1000
     },
     "area": "Voltage",
-    "desc": "The sum of the cell voltages disagrees with the measured pack voltage."
+    "desc": "The sum of the cell voltages disagrees with the measured pack voltage.",
+    "data": {
+      "fields": [
+        {
+          "type": "u32",
+          "bit": 0,
+          "unit": "mV",
+          "name": "pack"
+        },
+        {
+          "type": "u32",
+          "bit": 32,
+          "unit": "mV",
+          "name": "sum of the cells"
+        }
+      ]
+    }
   },
   "critical_bmb_read_error": {
     "type": "BMB_READ_ERROR",
@@ -411,7 +833,23 @@ export const EVENT_CATALOG = {
     "name": "BMB Read Error",
     "level": "WARNING",
     "area": "Monitor boards",
-    "desc": "A read from the battery monitor boards failed."
+    "desc": "A read from the battery monitor boards failed.",
+    "data": {
+      "fields": [
+        {
+          "type": "u8",
+          "bit": 56,
+          "unit": "-",
+          "name": "read (1 cells, 2 temperatures, 3 module IDs)"
+        },
+        {
+          "type": "u8",
+          "bit": 0,
+          "unit": "index",
+          "name": "bank"
+        }
+      ]
+    }
   },
   "critical_bmb_crc_mismatch": {
     "type": "BMB_CRC_MISMATCH",
@@ -419,7 +857,29 @@ export const EVENT_CATALOG = {
     "name": "BMB CRC Mismatch",
     "level": "WARNING",
     "area": "Monitor boards",
-    "desc": "Battery monitor board data failed its CRC check."
+    "desc": "Battery monitor board data failed its CRC check.",
+    "data": {
+      "fields": [
+        {
+          "type": "u8",
+          "bit": 56,
+          "unit": "-",
+          "name": "read (1 cells, 2 temperatures, 3 module IDs)"
+        },
+        {
+          "type": "hex16",
+          "bit": 16,
+          "unit": "-",
+          "name": "received"
+        },
+        {
+          "type": "hex16",
+          "bit": 0,
+          "unit": "-",
+          "name": "calculated"
+        }
+      ]
+    }
   },
   "warning_cell_voltage_glitch": {
     "type": "CELL_VOLTAGE_GLITCH",
@@ -427,7 +887,29 @@ export const EVENT_CATALOG = {
     "name": "Cell Voltage Glitch",
     "level": "WARNING",
     "area": "Voltage",
-    "desc": "A cell reading jumped implausibly and was ignored."
+    "desc": "A cell reading jumped implausibly and was ignored.",
+    "data": {
+      "fields": [
+        {
+          "type": "u16",
+          "bit": 0,
+          "unit": "mV",
+          "name": "new"
+        },
+        {
+          "type": "u16",
+          "bit": 16,
+          "unit": "mV",
+          "name": "before"
+        },
+        {
+          "type": "u16",
+          "bit": 32,
+          "unit": "index",
+          "name": "cell"
+        }
+      ]
+    }
   },
   "warning_module_temperature_glitch": {
     "type": "MODULE_TEMPERATURE_GLITCH",
@@ -435,7 +917,29 @@ export const EVENT_CATALOG = {
     "name": "Module Temperature Glitch",
     "level": "WARNING",
     "area": "Temperature",
-    "desc": "A module temperature jumped implausibly and was ignored."
+    "desc": "A module temperature jumped implausibly and was ignored.",
+    "data": {
+      "fields": [
+        {
+          "type": "i16",
+          "bit": 0,
+          "unit": "dDegC",
+          "name": "new"
+        },
+        {
+          "type": "i16",
+          "bit": 16,
+          "unit": "dDegC",
+          "name": "before"
+        },
+        {
+          "type": "u16",
+          "bit": 32,
+          "unit": "index",
+          "name": "module"
+        }
+      ]
+    }
   },
   "info_inverter_detected": {
     "type": "INVERTER_DETECTED",
@@ -443,7 +947,17 @@ export const EVENT_CATALOG = {
     "name": "Inverter Detected",
     "level": "INFO",
     "area": "System",
-    "desc": "The inverter is talking to the BMS on CAN."
+    "desc": "The inverter is talking to the BMS on CAN.",
+    "data": {
+      "fields": [
+        {
+          "type": "hex32",
+          "bit": 0,
+          "unit": "id",
+          "name": "CAN frame"
+        }
+      ]
+    }
   },
   "fatal_e_stop_pressed": {
     "type": "ESTOP_PRESSED",
@@ -454,7 +968,10 @@ export const EVENT_CATALOG = {
       "ms": 500
     },
     "area": "Contactors",
-    "desc": "The emergency stop input is active."
+    "desc": "The emergency stop input is active.",
+    "data": {
+      "none": true
+    }
   },
   "info_boot_normal": {
     "type": "BOOT_NORMAL",
@@ -462,7 +979,10 @@ export const EVENT_CATALOG = {
     "name": "Boot Normal",
     "level": "INFO",
     "area": "System",
-    "desc": "The BMS started normally."
+    "desc": "The BMS started normally.",
+    "data": {
+      "none": true
+    }
   },
   "info_boot_watchdog": {
     "type": "BOOT_WATCHDOG",
@@ -470,7 +990,10 @@ export const EVENT_CATALOG = {
     "name": "Boot Watchdog",
     "level": "WARNING",
     "area": "System",
-    "desc": "The BMS restarted after a watchdog reset: it had hung."
+    "desc": "The BMS restarted after a watchdog reset: it had hung.",
+    "data": {
+      "none": true
+    }
   },
   "warning_loop_overrun": {
     "type": "LOOP_OVERRUN",
@@ -478,7 +1001,17 @@ export const EVENT_CATALOG = {
     "name": "Loop Overrun",
     "level": "WARNING",
     "area": "System",
-    "desc": "The control loop overran its time slot."
+    "desc": "The control loop overran its time slot.",
+    "data": {
+      "fields": [
+        {
+          "type": "i32",
+          "bit": 0,
+          "unit": "ms",
+          "name": "loop took"
+        }
+      ]
+    }
   },
   "info_restarting": {
     "type": "RESTARTING",
@@ -486,7 +1019,10 @@ export const EVENT_CATALOG = {
     "name": "Restarting",
     "level": "FATAL",
     "area": "System",
-    "desc": "The BMS is restarting."
+    "desc": "The BMS is restarting.",
+    "data": {
+      "none": true
+    }
   },
   "warning_link_voltage_mismatch": {
     "type": "LINK_VOLTAGE_MISMATCH",
@@ -494,7 +1030,26 @@ export const EVENT_CATALOG = {
     "name": "Link Voltage Mismatch",
     "level": "WARNING",
     "area": "Contactors",
-    "desc": "With the link contactors closed, the link rail doesn't follow the pack voltage: one may have dropped out."
+    "desc": "With the link contactors closed, the link rail doesn't follow the pack voltage: one may have dropped out.",
+    "data": {
+      "fields": [
+        {
+          "type": "u32",
+          "bit": 0,
+          "unit": "mV",
+          "name": "link"
+        },
+        {
+          "type": "u32",
+          "bit": 32,
+          "unit": "mV",
+          "name": "pack"
+        }
+      ],
+      "codes": {
+        "3000000000000000": "the link or pack voltage reading is stale"
+      }
+    }
   },
   "warning_fuse_voltage_drop_high": {
     "type": "FUSE_VOLTAGE_DROP_HIGH",
@@ -502,7 +1057,17 @@ export const EVENT_CATALOG = {
     "name": "Fuse Voltage Drop High",
     "level": "WARNING",
     "area": "Contactors",
-    "desc": "With current flowing there is a large drop across the fuse or jumper: blown, or an open connection."
+    "desc": "With current flowing there is a large drop across the fuse or jumper: blown, or an open connection.",
+    "data": {
+      "fields": [
+        {
+          "type": "i32",
+          "bit": 0,
+          "unit": "mV",
+          "name": "drop"
+        }
+      ]
+    }
   },
   "warning_isolation_asymmetry": {
     "type": "ISOLATION_ASYMMETRY",
@@ -510,7 +1075,17 @@ export const EVENT_CATALOG = {
     "name": "Isolation Asymmetry",
     "level": "WARNING",
     "area": "System",
-    "desc": "The boot-time isolation zero check found a large offset: a possible leak to chassis."
+    "desc": "The boot-time isolation zero check found a large offset: a possible leak to chassis.",
+    "data": {
+      "fields": [
+        {
+          "type": "i32",
+          "bit": 0,
+          "unit": "count",
+          "name": "midpoint offset"
+        }
+      ]
+    }
   },
   "info_contactor_port_energized": {
     "type": "CONTACTOR_PORT_ENERGIZED",
@@ -518,7 +1093,17 @@ export const EVENT_CATALOG = {
     "name": "Contactor Port Energized",
     "level": "INFO",
     "area": "Contactors",
-    "desc": "The inverter held the battery port live with the contactors open, so the BMS precharged onto it instead of the weld test."
+    "desc": "The inverter held the battery port live with the contactors open, so the BMS precharged onto it instead of the weld test.",
+    "data": {
+      "fields": [
+        {
+          "type": "i32",
+          "bit": 0,
+          "unit": "mV",
+          "name": "output"
+        }
+      ]
+    }
   },
   "fatal_board_mismatch": {
     "type": "BOARD_MISMATCH",
@@ -526,7 +1111,23 @@ export const EVENT_CATALOG = {
     "name": "Board Mismatch",
     "level": "FATAL",
     "area": "System",
-    "desc": "The PCB revision strap doesn't match the firmware build."
+    "desc": "The PCB revision strap doesn't match the firmware build.",
+    "data": {
+      "fields": [
+        {
+          "type": "u16",
+          "bit": 0,
+          "unit": "-",
+          "name": "built for"
+        },
+        {
+          "type": "u16",
+          "bit": 16,
+          "unit": "-",
+          "name": "strap reads"
+        }
+      ]
+    }
   },
   "warning_supervisor_not_enabled": {
     "type": "SUPERVISOR_NOT_ENABLED",
@@ -534,7 +1135,29 @@ export const EVENT_CATALOG = {
     "name": "Supervisor Not Enabled",
     "level": "WARNING",
     "area": "Contactors",
-    "desc": "Closing is held off: the supervisor isn't enabling the contactor drivers."
+    "desc": "Closing is held off: the supervisor isn't enabling the contactor drivers.",
+    "data": {
+      "fields": [
+        {
+          "type": "hex16",
+          "bit": 0,
+          "unit": "-",
+          "name": "reasons"
+        },
+        {
+          "type": "hex16",
+          "bit": 16,
+          "unit": "-",
+          "name": "latched reasons"
+        },
+        {
+          "type": "u8",
+          "bit": 32,
+          "unit": "-",
+          "name": "state"
+        }
+      ]
+    }
   },
   "fatal_supervisor_disabled_contactors": {
     "type": "SUPERVISOR_DISABLED_CONTACTORS",
@@ -545,7 +1168,29 @@ export const EVENT_CATALOG = {
       "ms": 0
     },
     "area": "Contactors",
-    "desc": "The supervisor cut the contactor drivers while they were being driven."
+    "desc": "The supervisor cut the contactor drivers while they were being driven.",
+    "data": {
+      "fields": [
+        {
+          "type": "hex16",
+          "bit": 0,
+          "unit": "-",
+          "name": "reasons"
+        },
+        {
+          "type": "hex16",
+          "bit": 16,
+          "unit": "-",
+          "name": "latched reasons"
+        },
+        {
+          "type": "u8",
+          "bit": 32,
+          "unit": "-",
+          "name": "state"
+        }
+      ]
+    }
   },
   "warning_bmb_module_id_check_failed": {
     "type": "BMB_MODULE_ID_CHECK_FAILED",
@@ -553,7 +1198,23 @@ export const EVENT_CATALOG = {
     "name": "BMB Module ID Check Failed",
     "level": "WARNING",
     "area": "Monitor boards",
-    "desc": "A battery monitor board's module ID failed its CRC or check bits."
+    "desc": "A battery monitor board's module ID failed its CRC or check bits.",
+    "data": {
+      "fields": [
+        {
+          "type": "hex16",
+          "bit": 0,
+          "unit": "-",
+          "name": "first bad word"
+        },
+        {
+          "type": "hex16",
+          "bit": 16,
+          "unit": "-",
+          "name": "failed slots"
+        }
+      ]
+    }
   },
   "info_bmb_module_id_unknown": {
     "type": "BMB_MODULE_ID_UNKNOWN",
@@ -561,7 +1222,17 @@ export const EVENT_CATALOG = {
     "name": "BMB Module ID Unknown",
     "level": "INFO",
     "area": "Monitor boards",
-    "desc": "A module ID isn't in the BMS's pack type table."
+    "desc": "A module ID isn't in the BMS's pack type table.",
+    "data": {
+      "fields": [
+        {
+          "type": "hex16",
+          "bit": 0,
+          "unit": "id",
+          "name": "module ID"
+        }
+      ]
+    }
   },
   "fatal_bmb_module_id_conflict": {
     "type": "BMB_MODULE_ID_CONFLICT",
@@ -569,6 +1240,34 @@ export const EVENT_CATALOG = {
     "name": "BMB Module ID Conflict",
     "level": "FATAL",
     "area": "Monitor boards",
-    "desc": "The module IDs don't fit any pack type this BMS is built for."
+    "desc": "The module IDs don't fit any pack type this BMS is built for.",
+    "data": {
+      "fields": [
+        {
+          "type": "hex16",
+          "bit": 0,
+          "unit": "id",
+          "name": "ID 1"
+        },
+        {
+          "type": "hex16",
+          "bit": 16,
+          "unit": "id",
+          "name": "ID 2"
+        },
+        {
+          "type": "hex16",
+          "bit": 32,
+          "unit": "id",
+          "name": "ID 3"
+        },
+        {
+          "type": "hex16",
+          "bit": 48,
+          "unit": "id",
+          "name": "ID 4"
+        }
+      ]
+    }
   }
 };

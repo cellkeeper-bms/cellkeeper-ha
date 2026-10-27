@@ -4,6 +4,7 @@ import { define } from "../context.js";
 import { unsafeCSS } from "lit";
 import { LEVELS, LEVEL_COLORS, LEVEL_ICONS, PREVIOUS_COLOR, packEvents, escalationText, levelName, parseState } from "./model.js";
 import { ACTIVITY_KINDS, recordRows, snapshotView } from "./records.js";
+import { decodeEventData } from "./data.js";
 
 // custom:cellkeeper-events-card
 //   prefix: ck0
@@ -80,12 +81,12 @@ function buildLog(history, events, bootKey) {
           if (e.key === bootKey && !escalated) rows.push({ t, kind: "boot", text: "BMS started" });
           else
             rows.push({
-              t, e, level: cur.level, count: cur.count,
+              t, e, level: cur.level, count: cur.count, data: escalated ? undefined : cur.data,
               text: escalated ? `Escalated to ${cur.level.toLowerCase()}` : "Raised",
             });
           raisedAt = t;
         } else if (cur.active && prev.active && cur.count > prev.count) {
-          rows.push({ t, e, level: cur.level, count: cur.count, again: true, text: "Happened again" });
+          rows.push({ t, e, level: cur.level, count: cur.count, again: true, data: cur.data, text: "Happened again" });
         } else if (!cur.active && prev.active) {
           // Back to plain INACTIVE means the BMS restarted and forgot it, not that it cleared.
           const reset = cur.count === 0;
@@ -96,7 +97,7 @@ function buildLog(history, events, bootKey) {
           });
           raisedAt = undefined;
         } else if (!cur.active && !prev.active && cur.count > prev.count) {
-          rows.push({ t, e, level: e.level, count: cur.count, cleared: true, text: "Raised and cleared between readings" });
+          rows.push({ t, e, level: e.level, count: cur.count, cleared: true, data: cur.data, text: "Raised and cleared between readings" });
         }
       }
       prev = cur;
@@ -161,20 +162,20 @@ function storeLog(result, events, bootKey) {
     }
     if (o.kind === "again") {
       rows.push({
-        t: o.last_at * 1000, e, level, count: o.count_to, again: true, after, n: o.n, from: o.count_from + 1,
+        t: o.last_at * 1000, e, level, count: o.count_to, again: true, after, n: o.n, from: o.count_from + 1, data: o.data,
         text: o.n > 1 ? `Happened ${o.n} more times` : "Happened again",
       });
       continue;
     }
     if (o.kind === "between") {
       rows.push({
-        t: o.last_at * 1000, e, level, count: o.count_to, cleared: true, after, n: o.n, from: o.count_from + 1,
+        t: o.last_at * 1000, e, level, count: o.count_to, cleared: true, after, n: o.n, from: o.count_from + 1, data: o.data,
         text: o.n > 1 ? `Raised and cleared ${o.n} times between readings` : "Raised and cleared between readings",
       });
       continue;
     }
     rows.push({
-      t, e, level, count: o.count_to, after, id: o.id, snapshot: o.snapshot,
+      t, e, level, count: o.count_to, after, id: o.id, snapshot: o.snapshot, data: o.data,
       text: o.kind === "active" ? "Already active when the log began" : "Raised",
     });
     if (o.escalated_at) {
@@ -403,6 +404,7 @@ class CellKeeperEventsCard extends PackCard {
         <ha-icon icon=${LEVEL_ICONS[e.level]}></ha-icon>
         <div class="atext">
           <div class="aname">${e.name}<span class="lvl">${levelName(e.level)}</span>${e.count > 1 ? html`<span class="cnt">×${e.count}</span>` : ""}</div>
+          ${this._tripText(e) ? html`<div class="atrip">${e.count > 1 ? "Latest: " : ""}${this._tripText(e)}</div>` : ""}
           <div class="adesc">${e.desc}</div>
           <div class="aesc">
             ${e.level === "FATAL" ? "Stays until the BMS restarts." : escalationText(e)}
@@ -496,11 +498,22 @@ class CellKeeperEventsCard extends PackCard {
         <ha-icon icon=${r.reset ? "mdi:restart" : r.cleared ? "mdi:check" : LEVEL_ICONS[r.level] ?? "mdi:alert-circle-outline"}></ha-icon>
         <span class="ltext"
           ><b>${r.e.name}</b> <span class="dim">${r.text}${r.cleared || !r.level ? "" : html` · ${levelName(r.level)}`}${r.n > 1 ? ` · ×${r.from}–${r.count}` : r.count > 1 ? ` · ×${r.count}` : ""}${this._afterText(r)}</span
-          >${r.snapshot ? html`<ha-icon class="snap-icon" icon=${open ? "mdi:chevron-up" : "mdi:chart-line"} title="The minute before it"></ha-icon>` : ""}</span
+          >${this._trip(r)}${r.snapshot ? html`<ha-icon class="snap-icon" icon=${open ? "mdi:chevron-up" : "mdi:chart-line"} title="The minute before it"></ha-icon>` : ""}</span
         >
       </div>
       ${open ? html`<div style="--c:${c}">${snapshotView(this.hass, this._snap.data)}
           ${r.e.id ? html`<a class="snap-more" @click=${() => this.moreInfo(r.e.id)}>The event's history</a>` : ""}</div>` : ""}`;
+  }
+
+  // An event sensor's latest occurrence's data, decoded ("" without any).
+  _tripText(e) {
+    return e.data ? decodeEventData({ data: e.dataSpec }, e.data) : "";
+  }
+
+  // What tripped it, from the occurrence's data: " · current −52.4 A, limit 25.0 A"
+  _trip(r) {
+    const text = r.data ? decodeEventData({ data: r.e.dataSpec }, r.data) : "";
+    return text ? html`<span class="trip"> · ${text}</span>` : "";
   }
 
   async _toggleSnapshot(id) {
@@ -590,6 +603,7 @@ class CellKeeperEventsCard extends PackCard {
             <div class="dim">Starts as ${levelName(e.level).toLowerCase()}. ${escalationText(e)}.</div>
             <div class="dim">
               ${e.active ? `Active since ${new Date(e.since).toLocaleString()}` : e.count ? `Happened ${e.count}× since the BMS started` : "Not seen since the BMS started"}
+              ${this._tripText(e) ? ` · the latest: ${this._tripText(e)}` : ""}
               · <a @click=${(ev) => { ev.stopPropagation(); this.moreInfo(e.id); }}>history</a>
             </div>
           </div>`
@@ -862,6 +876,15 @@ class CellKeeperEventsCard extends PackCard {
       }
       .lrow.rec.warn ha-icon {
         color: ${unsafeCSS(LEVEL_COLORS.WARNING)};
+      }
+      .trip {
+        color: var(--primary-text-color);
+        font-variant-numeric: tabular-nums;
+      }
+      .atrip {
+        font-size: 14px;
+        font-variant-numeric: tabular-nums;
+        margin-top: 2px;
       }
       .snap-icon {
         --mdc-icon-size: 16px !important;

@@ -148,6 +148,8 @@ The pack's health over the years, from the integration's daily records (1 y or A
 
 - **Totals**: equivalent full cycles with the Ah and kWh out, full charges, contactor operations
   (and how many opened under load), and the days logged.
+- **Capacity**: the BMS's own estimate (its EKF) at the end of each day, with BMS firmware that
+  sends it.
 - **Cell spread at full charge**, each time the pack reached full.
 - **Each cell against the mean at full charge**: the first full charge faint, the latest solid, so
   a cell drifting away from the rest shows.
@@ -173,6 +175,12 @@ The pack's health over the years, from the integration's daily records (1 y or A
   - **Snapshots:** a warning or worse with a chart icon has a snapshot. Tap it to see the minute
     before it and 10 s after: current, pack voltage, cell spread and module temperatures, and the
     limits and SOC at the moment it was raised.
+  - **What tripped it**: with BMS and HMI firmware that send each occurrence's data (the event
+    sensor's state ends in ` d=<hex>`), each raise shows the reading that raised it, decoded:
+    "Overcurrent Discharging · Raised · current −52.4 A, limit 25.0 A". So do the Status card and
+    All events, for the latest occurrence.
+  - **Battery modules**: the BMBs' module IDs when logging began, and any change (a module swapped),
+    from the HMI's Module IDs sensor.
   - If the integration isn't running, the log reads Home Assistant's history of the event sensors
     instead (10 days by default), without activity or snapshots.
 - **All events**: the firmware's 61 events grouped by area, with what each means, the level it
@@ -181,7 +189,8 @@ The pack's health over the years, from the integration's daily records (1 y or A
 The levels and escalation rules come from the firmware's event table (`bms/sys/events/events.h`
 in bmstest1), not from the sensor names, some of which carry an older label: "Event Fatal POS
 Stuck Open" is a warning that turns fatal after 20 occurrences. `python frontend/tools/make_events.py`
-rebuilds `frontend/src/events/catalog.js` from that table and the HMI's `bms_core.yaml`.
+rebuilds `frontend/src/events/catalog.js` from that table and the HMI's `bms_core.yaml`, with each
+event's data layout from events.h's `// data` lines.
 
 ### The System view
 
@@ -312,6 +321,7 @@ the integration holds its writes while a backup copies it.
 | `cleared_at` | when it cleared |
 | `clear` | `cleared`, or `bms_restart` (the BMS restarted and forgot it) |
 | `n` | the number of occurrences the row covers |
+| `data` | the data of the occurrence that made the row (the latest, for folded repeats), as hex, from firmware that sends it; the dashboard decodes it with the catalogue |
 | `count_from`, `count_to` | the sensor's count before and after |
 | `time_known`, `raised_after` | when `time_known` is false, the event happened while the HMI or Home Assistant was away: some time between `raised_after` and `raised_at` |
 
@@ -335,6 +345,7 @@ Repeats within 10 minutes of each other fold into one row.
 | `system_request` | | each request (run, stop, calibrate) | |
 | `restart` | `bms`, `hmi` | each restart, from the BMS's millis and the HMI's uptime dropping; `t` is when it started | `uptime_before` (s) |
 | `firmware` | `bms`, `hmi` | each firmware change, and the firmware seen when logging began | |
+| `modules` | | each change of the HMI's Module IDs ("023 023 · pack type 34"), and the IDs seen when logging began | |
 | `setting` | the setting (`max_charge_current`) | each change of a `number` setting | `by`: `user` (with `user`, their name), `automation`, or `hmi` (its touch screen or its own scripts); missing for changes read from the recorder's history |
 | `balance_charge` | | each balance charge, with its `end` | `before` and `after`: lowest and highest cell and the spread; `balanced`: each bled cell's balancing time over the charge |
 
@@ -347,7 +358,7 @@ installed), the integration works it out from the recorder's history:
 
 | `kind` | `key` | One row per | `data` |
 |---|---|---|---|
-| `daily` | the date | day with readings, `t` its start | `ah_in`, `ah_out`, `kwh_in`, `kwh_out`, `capacity` (Ah) and `cycles` (Ah out ÷ capacity), `covered` (share of the day with a current reading), `soc_min`, `soc_max`, `temp_min`, `temp_max`; `contactor`: closings, openings, failures and openings `under_load` (over 5 A); `events`: raises by level; `balancing`: seconds each cell was bled |
+| `daily` | the date | day with readings, `t` its start | `ah_in`, `ah_out`, `kwh_in`, `kwh_out`, `capacity` (Ah) and `cycles` (Ah out ÷ capacity), `capacity_est` (the BMS's EKF estimate at the end of the day, Ah, with firmware that sends it), `covered` (share of the day with a current reading), `soc_min`, `soc_max`, `temp_min`, `temp_max`; `contactor`: closings, openings, failures and openings `under_load` (over 5 A); `events`: raises by level; `balancing`: seconds each cell was bled |
 | `full_charge` | | each time the pack reaches full | `cells`: every cell's voltage (`v`, cell 1 first), `min`, `max` and their cells, `spread`, `mean`; `values`: the SOC estimators, current, pack voltage, temperatures |
 | `empty` | the date | the day's lowest SOC | the same as a full charge |
 

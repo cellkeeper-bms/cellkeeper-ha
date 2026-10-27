@@ -31,7 +31,8 @@ REARM_SOC = 5.0
 REARM_S = 20 * 3600
 
 # The sensors a day's pass reads, by role (discovery.ROLES).
-DAY_ROLES = ("current", "pack_voltage", "soc", "temp_min", "temp_max", "charge_target", "cell_max", "capacity")
+DAY_ROLES = ("current", "pack_voltage", "soc", "temp_min", "temp_max", "charge_target", "cell_max", "capacity",
+             "capacity_est")
 
 
 @dataclass
@@ -178,6 +179,8 @@ class Day:
             "kwh_in": round(self.kwh_in, 4),
             "kwh_out": round(self.kwh_out, 4),
             "capacity": capacity,
+            # The BMS's own estimate of the capacity (its EKF), at the end of the day.
+            "capacity_est": None if (est := self.values.get("capacity_est")) is None else round(est, 3),
             "cycles": round(self.ah_out / capacity, 4) if capacity else None,
             "covered": round(self.covered_s / (self.end - self.start), 4),
             "soc_min": None if self.soc_min is None else round(self.soc_min[0], 2),

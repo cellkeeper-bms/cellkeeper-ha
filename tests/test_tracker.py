@@ -24,9 +24,13 @@ def test_parse_state() -> None:
     assert parse_state("INACTIVE (3)") == parse_state("INACTIVE (3)")
     p = parse_state("WARNING (7)")
     assert p.active and p.level == "WARNING" and p.count == 7
-    # The trip data the HMI will add later doesn't get in the way.
-    p = parse_state("FATAL (2) −52.4 A · d=FFFF3344")
-    assert p.active and p.level == "FATAL" and p.count == 2
+    # The latest occurrence's data, as the HMI adds it.
+    p = parse_state("FATAL (2) d=fa0ffff2d4c")
+    assert p.active and p.level == "FATAL" and p.count == 2 and p.data == "FA0FFFF2D4C"
+    assert parse_state("INACTIVE (2) d=1F").data == "1F"
+    assert parse_state("WARNING (2)").data is None
+    # It only changes with the count, so it doesn't make a state different.
+    assert parse_state("WARNING (2) d=1") == parse_state("WARNING (2) d=2")
     assert parse_state("unavailable") is None
     assert parse_state("unknown") is None
     assert parse_state(None) is None
@@ -117,3 +121,16 @@ def test_snapshot_restore() -> None:
     assert tr2.prev == tr.prev and tr2.open_id == tr.open_id and tr2.fold_id == tr.fold_id
     ops = tr2.feed(30, "INACTIVE (2)")
     assert ops[0].kind == "update" and ops[0].id == tr.open_id
+
+
+def test_occurrences_carry_their_data() -> None:
+    tr = make()
+    ops = feed(tr, (0, "INACTIVE"), (10, "WARNING (1) d=1F4"))
+    assert ops[0].fields["data"] == "1F4"
+    # A repeat row has the latest occurrence's, and a folded repeat updates it.
+    ops = feed(tr, (20, "WARNING (2) d=1F5"), (30, "WARNING (3) d=1F6"))
+    assert ops[0].fields["data"] == "1F5" and ops[1].kind == "update" and ops[1].fields["data"] == "1F6"
+    # Raised and cleared between two readings.
+    tr = make()
+    ops = feed(tr, (0, "INACTIVE (1) d=A"), (50, "INACTIVE (2) d=B"))
+    assert ops[0].fields["data"] == "B"

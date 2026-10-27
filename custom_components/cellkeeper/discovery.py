@@ -38,6 +38,8 @@ ROLES = {
     "cell_voltage_max": "cell_max",
     "soc_basic_count": "soc_basic",
     "soc_voltage_based": "soc_voltage",
+    "module_ids": "module_ids",
+    "ekf_capacity": "capacity_est",
 }
 _CELL = re.compile(r"^cell_voltage_(\d+)$")
 _BALANCING = re.compile(r"^cell_balancing_time_(\d+)$")

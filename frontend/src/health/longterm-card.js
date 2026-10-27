@@ -309,6 +309,18 @@ class CellKeeperLongTermCard extends PackCard {
         ${this._tile("Days logged", String(d.daily.length), first !== undefined ? `since ${DAYS.label(this.hass, DAYS.key(first))}` : "")}
       </div>
 
+      ${d.daily.some((r) => Number.isFinite(r.data?.capacity_est))
+        ? html`<div class="section">
+            <div class="label">Capacity, the BMS's estimate (its EKF), each day</div>
+            ${lines(
+              this.hass,
+              [{ label: "capacity", color: "var(--ck-charge)", points: d.daily.filter((r) => Number.isFinite(r.data?.capacity_est)).map((r) => [r.t, r.data.capacity_est]) }],
+              "Ah",
+              1,
+              1
+            )}
+          </div>`
+        : nothing}
       <div class="section">
         <div class="label">Cell spread at full charge</div>
         ${lines(this.hass, [{ label: "spread", color: "var(--ck-discharge)", points: d.full.map((r) => [r.t, r.data.cells.spread * 1000]) }], "mV", 0, 5)}

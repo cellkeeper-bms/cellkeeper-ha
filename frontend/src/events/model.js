@@ -14,10 +14,13 @@ export const LEVEL_ICONS = {
 };
 
 export function parseState(state) {
-  const m = /^(INFO|WARNING|CRITICAL|FATAL) \((\d+)\)$/.exec(state ?? "");
-  if (m) return { active: true, level: m[1], count: +m[2] };
-  const p = /^INACTIVE \((\d+)\)$/.exec(state ?? "");
-  if (p) return { active: false, count: +p[1] };
+  // HMI firmware with the event data adds the latest occurrence's, " d=<hex>", after the count.
+  const d = / d=([0-9A-Fa-f]{1,16})$/.exec(state ?? "");
+  const data = d ? d[1].toUpperCase() : undefined;
+  const m = /^(INFO|WARNING|CRITICAL|FATAL) \((\d+)\)( d=[0-9A-Fa-f]+)?$/.exec(state ?? "");
+  if (m) return { active: true, level: m[1], count: +m[2], data };
+  const p = /^INACTIVE \((\d+)\)( d=[0-9A-Fa-f]+)?$/.exec(state ?? "");
+  if (p) return { active: false, count: +p[1], data };
   if (state === "INACTIVE") return { active: false, count: 0 };
   return { unavailable: true, count: 0 };
 }
@@ -43,6 +46,7 @@ export function packEvents(hass, prefix) {
       escalate: info?.escalate,
       area: info?.area ?? "Other",
       desc: info?.desc ?? "",
+      dataSpec: info?.data,
       order: info?.id ?? 1000,
       state: st.state,
       since: st.last_changed,

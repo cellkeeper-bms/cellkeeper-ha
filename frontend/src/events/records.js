@@ -29,7 +29,7 @@ export function withoutGlitches(records) {
 }
 
 // The records the log shows (the daily health records are the Long Term view's).
-export const ACTIVITY_KINDS = ["contactor", "system_state", "system_request", "restart", "firmware", "setting", "balance_charge"];
+export const ACTIVITY_KINDS = ["contactor", "system_state", "system_request", "restart", "firmware", "setting", "balance_charge", "modules"];
 
 const STATES = { UNINIT: "Starting", INIT: "Initialising", CALIB: "Calibrating", INACTIVE: "Inactive", OPERATING: "Operating", FAULT: "Fault" };
 const REQUESTS = { NONE: "nothing", RUN: "run", STOP: "stop", CALIBRATE: "calibrate" };
@@ -103,6 +103,13 @@ export function recordRows(records, hass, prefix) {
         icon: "mdi:chip",
         text: r.old ? `${what} firmware updated` : `${what} firmware`,
         detail: r.old ? `${r.old} → ${r.new}` : r.new,
+      });
+    } else if (r.kind === "modules") {
+      Object.assign(row, {
+        icon: "mdi:identifier",
+        text: r.old ? "Battery modules changed" : "Battery modules",
+        detail: r.old ? `${r.old} → ${r.new}` : r.new,
+        warn: !!r.old,
       });
     } else if (r.kind === "setting") {
       const unit = hass.states[`number.${prefix}_${r.key}`]?.attributes?.unit_of_measurement;

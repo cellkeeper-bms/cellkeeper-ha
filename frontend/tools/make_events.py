@@ -103,13 +103,43 @@ def area(t):
     return "System"
 
 
+# "// data NAME: i32 mA current; u16@32 dA limit" and "// data NAME = 0x1000000000000000: stale"
+# in events.h: what each event's 8 bytes of data hold (see the comment above them there).
+_DATA_FIELDS = re.compile(r"^// data (\w+): (.+)$", re.M)
+_DATA_CODE = re.compile(r"^// data (\w+) = 0x([0-9A-Fa-f]+): (.+)$", re.M)
+_FIELD = re.compile(r"^(i8|u8|i16|u16|i32|u32|i64|u64|hex8|hex16|hex32|hex64)(?:@(\d+))? (\S+) (.+)$")
+
+
+def data_specs(text):
+    """Each event's data layout: {"fields": [{type, bit, unit, name}], "codes": {hex: meaning}},
+    or {"none": true} for an event without data."""
+    specs = {}
+    for name, fields in _DATA_FIELDS.findall(text):
+        spec = specs.setdefault(name, {})
+        if fields.strip() == "none":
+            spec["none"] = True
+            continue
+        out = []
+        for f in fields.split(";"):
+            m = _FIELD.match(f.strip())
+            if not m:
+                raise SystemExit(f"events.h: can't read the data field {f.strip()!r} of {name}")
+            out.append({"type": m.group(1), "bit": int(m.group(2) or 0), "unit": m.group(3), "name": m.group(4)})
+        spec["fields"] = out
+    for name, value, meaning in _DATA_CODE.findall(text):
+        specs.setdefault(name, {}).setdefault("codes", {})[value.upper().lstrip("0") or "0"] = meaning.strip()
+    return specs
+
+
 def slug(text):
     return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
 
 
 def main():
     limits = dict(re.findall(r"#define (\w+_ESCALATION_MS) (\d+)", LIMITS_H.read_text()))
-    body = EVENTS_H.read_text().split("#define EVENT_TYPES(X)")[1].split("typedef enum")[0]
+    header = EVENTS_H.read_text()
+    specs = data_specs(header)
+    body = header.split("#define EVENT_TYPES(X)")[1].split("typedef enum")[0]
     firmware = {}
     for index, (name, level, after) in enumerate(re.findall(r"X\((\w+), LEVEL_(\w+), ([^)]*?)\)", body)):
         after = re.sub(r"/\*.*?\*/", "", after).strip()
@@ -136,10 +166,13 @@ def main():
             **({"escalate": escalate} if escalate else {}),
             "area": area(t),
             "desc": DESCRIPTIONS[t],
+            **({"data": specs[t]} if t in specs else {}),
         }
     missing = set(firmware) - {c["type"] for c in catalog.values()}
     if missing:
         print("firmware events without an HMI sensor:", ", ".join(sorted(missing)))
+    if specs and (undocumented := set(firmware) - set(specs)):
+        print("events.h has no data line for:", ", ".join(sorted(undocumented)))
 
     out = HERE.parent / "src" / "events" / "catalog.js"
     out.parent.mkdir(exist_ok=True)
@@ -149,7 +182,8 @@ def main():
         "//\n"
         "// Keyed by the event sensor's id after sensor.<prefix>_event_. level is the firmware's starting\n"
         "// level; escalate is {count} (a warning turns fatal after that many occurrences) or {ms}\n"
-        "// (a critical turns fatal after being active that long).\n"
+        "// (a critical turns fatal after being active that long). data is how the event's data is laid\n"
+        "// out (events.h's \"// data\" lines): its fields, low bits first, or codes for fixed values.\n"
         f"export const EVENT_CATALOG = {json.dumps(catalog, indent=2, ensure_ascii=False)};\n",
         encoding="utf-8",
     )

@@ -6,7 +6,7 @@ history and on live states. Values from the pack's other sensors at the moment o
 (current, voltages, cells) are asked for in RecordOp.needs, and the pack logger fills them in.
 
 Sources (the pack logger maps entities to these):
-    contactor, system_state, system_request, bms_firmware, hmi_firmware, balance_charge (text)
+    contactor, system_state, system_request, bms_firmware, hmi_firmware, balance_charge, module_ids (text)
     millis, uptime_hmi (seconds, already converted)
     setting:<key> (a number entity's state)
 """
@@ -111,6 +111,11 @@ class RecordTracker:
             if prev != state:
                 # The first one seen is recorded too: the firmware the pack had when logging began.
                 self._insert(t, "firmware", source.split("_")[0], prev, state, after if prev is not None else None,
+                             known=prev is not None and after is None)
+        elif source == "module_ids":
+            # "023 023 · pack type 34": a change is a module swapped (or one stopped answering).
+            if prev != state:
+                self._insert(t, "modules", None, prev, state, after if prev is not None else None,
                              known=prev is not None and after is None)
         elif source == "balance_charge":
             state = self._balance(t, prev, state, after)

@@ -23,6 +23,8 @@ FOLD_S = 600
 
 _ACTIVE = re.compile(r"^(INFO|WARNING|CRITICAL|FATAL) \((\d+)\)")
 _INACTIVE = re.compile(r"^INACTIVE \((\d+)\)")
+# The latest occurrence's data, as hex, when the HMI sends it: "WARNING (7) d=FA0FFFF2D4C"
+_DATA = re.compile(r" d=([0-9A-Fa-f]{1,16})(?![0-9A-Za-z])")
 
 
 @dataclass(frozen=True)
@@ -32,19 +34,25 @@ class Parsed:
     active: bool
     count: int
     level: str | None = None
+    # The data of the latest occurrence (hex), from HMI firmware that sends it. It only changes
+    # with the count, so it isn't part of what makes a state new.
+    data: str | None = field(default=None, compare=False)
 
 
 def parse_state(state: str | None) -> Parsed | None:
     """Parse an event sensor's state, or None when it isn't one (unavailable, unknown).
 
-    Anything after "(n)" is allowed, for the trip data the HMI will add later.
+    After "(n)" the HMI may add the latest occurrence's data, " d=<hex>"; anything else after it
+    is ignored.
     """
     if not state:
         return None
+    d = _DATA.search(state)
+    data = d.group(1).upper() if d else None
     if m := _ACTIVE.match(state):
-        return Parsed(True, int(m.group(2)), m.group(1))
+        return Parsed(True, int(m.group(2)), m.group(1), data)
     if m := _INACTIVE.match(state):
-        return Parsed(False, int(m.group(1)))
+        return Parsed(False, int(m.group(1)), None, data)
     if state == "INACTIVE":
         return Parsed(False, 0)
     return None
@@ -155,7 +163,7 @@ class EventTracker:
             if cur.active:
                 self._raise(t, cur, 0, kind="raised", after=after, known=known)
             elif cur.count:
-                self._between(t, cur.level, 0, cur.count, after, known)
+                self._between(t, cur.level, 0, cur.count, after, known, cur.data)
         elif cur.active and not prev.active:
             self._raise(t, cur, prev.count, kind="raised", after=after, known=known)
         elif cur.active and prev.active:
@@ -165,7 +173,7 @@ class EventTracker:
                 else:
                     self._update(self.open_id, level=cur.level, escalated_at=t)
             if cur.count > prev.count:
-                self._repeat(t, cur.level, prev.count, cur.count, "again", after, known)
+                self._repeat(t, cur.level, prev.count, cur.count, "again", after, known, cur.data)
         elif prev.active and not cur.active:
             if self.open_id is not None:
                 fields: dict[str, Any] = {"cleared_at": t, "clear": "cleared"}
@@ -174,10 +182,10 @@ class EventTracker:
                 self._update(self.open_id, **fields)
                 self.open_id = None
             if cur.count > prev.count:
-                self._between(t, prev.level, prev.count, cur.count, after, known)
+                self._between(t, prev.level, prev.count, cur.count, after, known, cur.data)
         elif cur.count > prev.count:
             # Raised and cleared again between two readings.
-            self._between(t, None, prev.count, cur.count, after, known)
+            self._between(t, None, prev.count, cur.count, after, known, cur.data)
 
         self._take(t, cur)
         return self.ops
@@ -209,20 +217,25 @@ class EventTracker:
                     "count_to": cur.count,
                     "n": max(cur.count - count_from, 1),
                     "last_at": t,
+                    "data": cur.data,
                 },
             )
         )
         self.open_id = row_id
 
-    def _between(self, t: float, level: str | None, count_from: int, count_to: int, after: float | None, known: bool) -> None:
-        self._repeat(t, level, count_from, count_to, "between", after, known)
+    def _between(self, t: float, level: str | None, count_from: int, count_to: int, after: float | None, known: bool,
+                 data: str | None = None) -> None:
+        self._repeat(t, level, count_from, count_to, "between", after, known, data)
 
-    def _repeat(self, t: float, level: str | None, count_from: int, count_to: int, kind: str, after: float | None, known: bool) -> None:
+    def _repeat(self, t: float, level: str | None, count_from: int, count_to: int, kind: str, after: float | None, known: bool,
+                data: str | None = None) -> None:
         n = count_to - count_from
         if self.fold_id is not None and self.fold_last is not None and known and t - self.fold_last <= FOLD_S:
             self.fold_n += n
             self.fold_last = t
-            self._update(self.fold_id, n=self.fold_n, count_to=count_to, last_at=t)
+            # A folded row keeps the latest occurrence's data.
+            extra = {"data": data} if data else {}
+            self._update(self.fold_id, n=self.fold_n, count_to=count_to, last_at=t, **extra)
             return
         row_id = self.next_id()
         self.ops.append(
@@ -242,6 +255,7 @@ class EventTracker:
                     "count_to": count_to,
                     "n": n,
                     "last_at": t,
+                    "data": data,
                 },
             )
         )
