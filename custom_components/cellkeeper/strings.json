@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "CellKeeper",
-        "description": "Adds the CellKeeper dashboard (the custom:cellkeeper dashboard strategy), and keeps a long-term history of your CellKeeper packs, apart from the recorder's 10 days.\n\nPacks found: {packs}"
+        "description": "Adds the CellKeeper dashboard, with a dashboard in the sidebar for each pack that doesn't have one yet, and keeps a long-term history of your CellKeeper packs, apart from the recorder's 10 days.\n\nPacks found: {packs}"
       }
     },
     "abort": {
@@ -19,6 +19,19 @@
             "title": "Remove the separate CellKeeper Dashboard install",
             "description": "The dashboard now comes with the CellKeeper integration. The separate install (HACS, CellKeeper Dashboard) is still a Lovelace resource ({url}), so two copies of the same cards load.\n\nSubmit to remove that resource. Your dashboards keep working, on the integration's copy. Then remove CellKeeper Dashboard in HACS too."
           }
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "CellKeeper",
+        "data": {
+          "create_dashboards": "Make a dashboard for each new pack"
+        },
+        "data_description": {
+          "create_dashboards": "Once per pack, when one is found that no dashboard shows yet. A dashboard you change or delete stays that way."
         }
       }
     }

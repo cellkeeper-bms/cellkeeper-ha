@@ -17,7 +17,10 @@ one install:
 3. **Settings → Devices & services → Add integration → CellKeeper.** It lists the packs it found
    (by their event sensors) and picks up packs added later by itself.
 
-The dashboard is then available on every page; make a dashboard for each pack (below). HACS offers
+It then makes a dashboard in the sidebar for each pack that no dashboard shows yet: **CellKeeper
+ck0** at `/cellkeeper-ck0`, and so on. It does this once per pack, so a dashboard you rename, change
+or delete stays that way. To turn it off: Settings → Devices & services → CellKeeper → ⚙ (options).
+HACS offers
 updates when a new release is published, and the dashboard shows them too (a chip on the Overview,
 an **Update** button on the System view). An update needs a restart of Home Assistant.
 
@@ -43,6 +46,8 @@ If your device already has another name, either use that name as the prefix or r
 (and its entity ids) in **Settings → Devices & services → ESPHome**.
 
 ## Create the dashboard
+
+The integration makes one for each new pack (above); to make one by hand:
 
 1. **Settings → Dashboards → Add dashboard → New dashboard from scratch**, give it a name
    (for example *CellKeeper 0*) and open it.

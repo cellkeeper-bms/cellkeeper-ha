@@ -23,6 +23,7 @@ from homeassistant.loader import async_get_integration
 from homeassistant.util import dt as dt_util
 
 from .const import DB_DIR, DB_FILE, DOMAIN
+from .dashboards import async_create_dashboards
 from .discovery import find_packs
 from .frontend import async_check_old_install, async_remove_frontend, async_setup_frontend
 from .pack import PackLogger
@@ -63,7 +64,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: CellKeeperConfigEntry) -
     async def start_packs() -> None:
         # The recorder's history is read on the first start, so wait until it can be.
         await get_instance(hass).async_db_ready
-        for prefix, info in find_packs(hass).items():
+        packs = find_packs(hass)
+        # A dashboard in the sidebar for each pack that has none yet (once per pack).
+        try:
+            await async_create_dashboards(hass, entry, list(packs.values()))
+        except Exception:
+            _LOGGER.exception("Couldn't make the packs' dashboards")
+        for prefix, info in packs.items():
             if prefix in runtime.packs:
                 continue
             pack = PackLogger(hass, runtime, info)
