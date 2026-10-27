@@ -143,11 +143,18 @@ readable units (V, s) and "Saving…" until the BMS reports the new value back.
   fatal; fatal events stay until the BMS restarts). Info events and events that were active
   earlier since the BMS started are listed underneath.
 - **Event log**: every event raised, repeated, escalated and cleared, with BMS starts and HMI
-  reconnects; bursts
-  of repeats fold into one line. Info events are hidden unless you ask for them. It reads the
-  integration's own history (below), so it goes back as far as that has kept: 10 d, 90 d, 1 y or
-  All, with Home Assistant's own restarts marked. If the integration isn't running, it reads Home
-  Assistant's history of the event sensors instead (10 days by default).
+  reconnects; bursts of repeats fold into one line. Info events are hidden unless you ask for
+  them. It reads the integration's own history (below), so it goes back as far as that has kept:
+  10 d, 90 d, 1 y or All, with Home Assistant's own restarts marked.
+  - **Activity** (on unless you untick it): the pack's records in the same list. These are contactor
+    operations, with the current and voltage at each one (opening at more than 5 A is flagged "under
+    load"), BMS state changes and requests, BMS and HMI restarts, firmware updates, settings
+    changes with who made them, and balance charges with the cell spread before and after.
+  - **Snapshots:** a warning or worse with a chart icon has a snapshot. Tap it to see the minute
+    before it and 10 s after: current, pack voltage, cell spread and module temperatures, and the
+    limits and SOC at the moment it was raised.
+  - If the integration isn't running, the log reads Home Assistant's history of the event sensors
+    instead (10 days by default), without activity or snapshots.
 - **All events**: the firmware's 61 events grouped by area, with what each means, the level it
   starts at, when it turns fatal, and its count since the BMS started. Searchable.
 
@@ -298,13 +305,40 @@ Repeats within 10 minutes of each other fold into one row.
 
 **Markers.** The database also keeps markers: `hmi_offline` and `hmi_online`, `ha_started` (from the recorder's runs), and `logging_started`. The HMI's entities are unavailable for a moment while Home Assistant starts; that isn't counted as an HMI outage.
 
+**Records.** What the pack did, from its state sensors and settings. Each row has a time `t`, a
+`kind` and `key`, the `old` and `new` values, and `data` (JSON):
+
+| `kind` | `key` | One row per | `data` |
+|---|---|---|---|
+| `contactor` | `closed`, `opened`, `failed` | closing, opening, or a failed pre-charge or contactor test | `values`: current, pack and output voltage, SOC at that moment |
+| `system_state` | | each change of the BMS state (Inactive, Operating, Fault…) | |
+| `system_request` | | each request (run, stop, calibrate) | |
+| `restart` | `bms`, `hmi` | each restart, from the BMS's millis and the HMI's uptime dropping; `t` is when it started | `uptime_before` (s) |
+| `firmware` | `bms`, `hmi` | each firmware change, and the firmware seen when logging began | |
+| `setting` | the setting (`max_charge_current`) | each change of a `number` setting | `by`: `user` (with `user`, their name), `automation`, or `hmi` (its touch screen or its own scripts); missing for changes read from the recorder's history |
+| `balance_charge` | | each balance charge, with its `end` | `before` and `after`: lowest and highest cell and the spread; `balanced`: each bled cell's balancing time over the charge |
+
+As with occurrences, `time_known` false means it happened while the HMI or Home Assistant was away,
+some time after `after`. The first start after installing (or updating to 0.15.0) reads the
+recorder's whole history (10 days by default) for these.
+
+**Snapshots.** For each warning, critical or fatal event raised at a known time: the pack's values
+for the 60 s before it and 10 s after, one per second, taken from the recorder once it has them
+(so they also exist for events in the recorder's history when the integration was installed).
+The series are `current` (with each second's `current_min` and `current_max`), `pack_voltage`,
+`output_voltage`, `soc`, `temp_min`, `temp_max`, `limit_charge`, `limit_discharge`, `cell_min`
+and `cell_max` with the cell numbers (`cell_min_n`, `cell_max_n`). Values are in V, A, °C and %,
+whatever units Home Assistant shows them in.
+
 ## Websocket API
 
 | Command | Returns |
 |---|---|
 | `cellkeeper/packs` | the packs being logged |
 | `cellkeeper/events/list` | `{prefix, start?, end?, event?, before_id?, limit?}`: occurrences, newest first, and markers |
-| `cellkeeper/events/subscribe` | `{prefix?}`: new and changed occurrences as they happen |
+| `cellkeeper/events/subscribe` | `{prefix?}`: new and changed occurrences, markers and records as they happen, and the ids of new snapshots |
+| `cellkeeper/records/list` | `{prefix, start?, end?, kinds?, before_id?, limit?}`: records, newest first |
+| `cellkeeper/snapshot` | `{occurrence_id}`: an occurrence's snapshot (occurrences have `snapshot: true` when there is one) |
 | `cellkeeper/info` | the database's path and size, and its row counts |
 
 Times are seconds since the epoch (UTC).

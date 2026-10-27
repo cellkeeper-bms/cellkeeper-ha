@@ -17,7 +17,7 @@ from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Each migration takes the database from version i to i + 1.
 MIGRATIONS: list[str] = [
@@ -72,6 +72,33 @@ MIGRATIONS: list[str] = [
     CREATE TABLE meta (
         key TEXT PRIMARY KEY,
         value TEXT
+    );
+    """,
+    # 1 -> 2
+    """
+    CREATE TABLE records (
+        id INTEGER PRIMARY KEY,
+        prefix TEXT NOT NULL,
+        t REAL NOT NULL,              -- when it happened (a restart: when it started)
+        kind TEXT NOT NULL,           -- contactor, system_state, system_request, restart, firmware,
+                                      -- setting, balance_charge
+        key TEXT,                     -- contactor: closed, opened, failed; restart and firmware: bms, hmi;
+                                      -- setting: the setting (max_charge_current)
+        old TEXT,
+        new TEXT,
+        time_known INTEGER NOT NULL,
+        after REAL,                   -- when time_known is 0: it happened between this and t
+        end REAL,                     -- a balance charge's end
+        end_after REAL,
+        data TEXT                     -- JSON: the values at the time, who changed a setting...
+    );
+    CREATE INDEX records_pack_time ON records (prefix, t);
+    CREATE INDEX records_pack_kind ON records (prefix, kind, t);
+    CREATE TABLE snapshots (
+        occurrence_id INTEGER PRIMARY KEY,
+        prefix TEXT NOT NULL,
+        t REAL NOT NULL,
+        data TEXT NOT NULL            -- JSON: snapshot.build()
     );
     """,
 ]
@@ -143,6 +170,9 @@ class Store:
     def max_id(self) -> int:
         return self._db.execute("SELECT COALESCE(MAX(id), 0) FROM occurrences").fetchone()[0]
 
+    def max_record_id(self) -> int:
+        return self._db.execute("SELECT COALESCE(MAX(id), 0) FROM records").fetchone()[0]
+
     def pack(self, prefix: str) -> dict[str, Any] | None:
         row = self._db.execute("SELECT * FROM packs WHERE prefix = ?", (prefix,)).fetchone()
         return dict(row) if row else None
@@ -170,8 +200,10 @@ class Store:
     # ---- writing ----
 
     def apply(self, prefix: str, ops: list[Any], markers: list[tuple[float, str, str | None]],
-              trackers: dict[str, dict[str, Any]], synced_until: float | None) -> None:
-        """Write a batch of tracker operations, markers and tracker states in one transaction."""
+              trackers: dict[str, dict[str, Any]], synced_until: float | None,
+              records: list[Any] = (), snapshots: list[tuple[int, float, dict[str, Any]]] = ()) -> None:
+        """Write a batch of tracker operations, markers, records, snapshots and tracker states in
+        one transaction."""
         db = self._db
         with self._lock:
             db.execute("BEGIN")
@@ -186,6 +218,25 @@ class Store:
                     else:
                         sets = ", ".join(f"{k} = ?" for k in op.fields)
                         db.execute(f"UPDATE occurrences SET {sets} WHERE id = ?", (*(_sql(v) for v in op.fields.values()), op.id))
+                for op in records:
+                    fields = {k: (json.dumps(v) if k == "data" else _sql(v)) for k, v in op.fields.items()}
+                    if op.kind == "insert":
+                        cols = ["id", *fields]
+                        db.execute(
+                            f"INSERT INTO records ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+                            (op.id, *fields.values()),
+                        )
+                    else:
+                        # data is merged into what's there (a balance charge's start values stay).
+                        sets = ", ".join(
+                            "data = json_patch(COALESCE(data, '{}'), ?)" if k == "data" else f"{k} = ?" for k in fields
+                        )
+                        db.execute(f"UPDATE records SET {sets} WHERE id = ?", (*fields.values(), op.id))
+                for occurrence_id, t, data in snapshots:
+                    db.execute(
+                        "INSERT OR REPLACE INTO snapshots (occurrence_id, prefix, t, data) VALUES (?, ?, ?, ?)",
+                        (occurrence_id, prefix, t, json.dumps(data, separators=(",", ":"))),
+                    )
                 for t, kind, text in markers:
                     db.execute("INSERT INTO markers (prefix, t, kind, text) VALUES (?, ?, ?, ?)", (prefix, t, kind, text))
                 for event, state in trackers.items():
@@ -222,14 +273,59 @@ class Store:
             where.append("id < ?")
             args.append(before_id)
         rows = self._db.execute(
-            f"SELECT * FROM occurrences WHERE {' AND '.join(where)} ORDER BY raised_at DESC, id DESC LIMIT ?",
+            f"""SELECT o.*, EXISTS (SELECT 1 FROM snapshots s WHERE s.occurrence_id = o.id) AS snapshot
+                FROM occurrences o WHERE {' AND '.join(where)} ORDER BY raised_at DESC, id DESC LIMIT ?""",
             (*args, limit),
         ).fetchall()
         return [_row(r) for r in rows]
 
     def occurrence(self, row_id: int) -> dict[str, Any] | None:
-        row = self._db.execute("SELECT * FROM occurrences WHERE id = ?", (row_id,)).fetchone()
+        row = self._db.execute(
+            """SELECT o.*, EXISTS (SELECT 1 FROM snapshots s WHERE s.occurrence_id = o.id) AS snapshot
+               FROM occurrences o WHERE id = ?""",
+            (row_id,),
+        ).fetchone()
         return _row(row) if row else None
+
+    def records(self, prefix: str, start: float | None, end: float | None, kinds: list[str] | None,
+                before_id: int | None, limit: int) -> list[dict[str, Any]]:
+        where, args = ["prefix = ?"], [prefix]
+        if start is not None:
+            # A balance charge that ended after start, or is still going, belongs to the range too.
+            where.append("(t >= ? OR end >= ? OR (kind = 'balance_charge' AND end IS NULL))")
+            args += [start, start]
+        if end is not None:
+            where.append("t <= ?")
+            args.append(end)
+        if kinds:
+            where.append(f"kind IN ({', '.join('?' * len(kinds))})")
+            args += kinds
+        if before_id is not None:
+            where.append("id < ?")
+            args.append(before_id)
+        rows = self._db.execute(
+            f"SELECT * FROM records WHERE {' AND '.join(where)} ORDER BY t DESC, id DESC LIMIT ?", (*args, limit)
+        ).fetchall()
+        return [_record(r) for r in rows]
+
+    def record(self, row_id: int) -> dict[str, Any] | None:
+        row = self._db.execute("SELECT * FROM records WHERE id = ?", (row_id,)).fetchone()
+        return _record(row) if row else None
+
+    def without_snapshot(self, prefix: str, since: float) -> list[tuple[int, float]]:
+        """Warnings or worse raised at a known time since `since` that have no snapshot yet."""
+        rows = self._db.execute(
+            """SELECT id, raised_at FROM occurrences o
+               WHERE prefix = ? AND raised_at >= ? AND kind = 'raised' AND time_known
+                 AND start_level IN ('WARNING', 'CRITICAL', 'FATAL')
+                 AND NOT EXISTS (SELECT 1 FROM snapshots s WHERE s.occurrence_id = o.id)""",
+            (prefix, since),
+        ).fetchall()
+        return [(r["id"], r["raised_at"]) for r in rows]
+
+    def snapshot(self, occurrence_id: int) -> dict[str, Any] | None:
+        row = self._db.execute("SELECT data FROM snapshots WHERE occurrence_id = ?", (occurrence_id,)).fetchone()
+        return json.loads(row["data"]) if row else None
 
     def markers(self, prefix: str, start: float | None, end: float | None, limit: int) -> list[dict[str, Any]]:
         where, args = ["prefix = ?"], [prefix]
@@ -252,6 +348,8 @@ class Store:
             "bytes": size + (wal.stat().st_size if wal.exists() else 0),
             "occurrences": self._db.execute("SELECT COUNT(*) FROM occurrences").fetchone()[0],
             "markers": self._db.execute("SELECT COUNT(*) FROM markers").fetchone()[0],
+            "records": self._db.execute("SELECT COUNT(*) FROM records").fetchone()[0],
+            "snapshots": self._db.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0],
             "schema": SCHEMA_VERSION,
         }
 
@@ -263,4 +361,13 @@ def _sql(v: Any) -> Any:
 def _row(r: sqlite3.Row) -> dict[str, Any]:
     d = dict(r)
     d["time_known"] = bool(d["time_known"])
+    if "snapshot" in d:
+        d["snapshot"] = bool(d["snapshot"])
+    return d
+
+
+def _record(r: sqlite3.Row) -> dict[str, Any]:
+    d = dict(r)
+    d["time_known"] = bool(d["time_known"])
+    d["data"] = json.loads(d["data"]) if d["data"] else {}
     return d

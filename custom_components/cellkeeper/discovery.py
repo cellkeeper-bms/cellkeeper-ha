@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
@@ -13,16 +14,43 @@ MIN_EVENT_SENSORS = 5
 
 BOOT_EVENT = "info_boot_normal"
 
+# The other sensors the integration reads, by the HMI's name for them (slugified), so renaming
+# an entity doesn't lose it.
+ROLES = {
+    "contactor_state_text": "contactor",
+    "system_state_text": "system_state",
+    "system_request_text": "system_request",
+    "millis": "millis",
+    "uptime_hmi": "uptime_hmi",
+    "bms_firmware": "bms_firmware",
+    "hmi_firmware": "hmi_firmware",
+    "balance_charge_status": "balance_charge",
+    "current": "current",
+    "pack_internal_voltage": "pack_voltage",
+    "pack_output_voltage": "output_voltage",
+    "soc": "soc",
+    "module_temperature_min": "temp_min",
+    "module_temperature_max": "temp_max",
+    "current_limit_effective_charge": "limit_charge",
+    "current_limit_effective_discharge": "limit_discharge",
+}
+_CELL = re.compile(r"^cell_voltage_(\d+)$")
+_BALANCING = re.compile(r"^cell_balancing_time_(\d+)$")
+
 
 @dataclass
 class PackInfo:
-    """One pack: its prefix (ck0) and its event sensors."""
+    """One pack: its prefix (ck0), its event sensors and the other entities it reads."""
 
     prefix: str
     name: str
     device_id: str
     mac: str | None
     events: dict[str, str] = field(default_factory=dict)  # entity_id -> event key
+    roles: dict[str, str] = field(default_factory=dict)  # role (ROLES' values) -> entity_id
+    settings: dict[str, str] = field(default_factory=dict)  # entity_id -> setting key (max_charge_current)
+    cells: dict[int, str] = field(default_factory=dict)  # cell number (from 1) -> its voltage sensor
+    balancing: dict[int, str] = field(default_factory=dict)  # cell number -> its balancing time sensor
 
     @property
     def presence_entity(self) -> str:
@@ -71,14 +99,36 @@ def find_packs(hass: HomeAssistant) -> dict[str, PackInfo]:
             unique_id = ent_reg.entities[entity_id].unique_id
             mac = unique_id.split("/", 1)[0] if "/" in unique_id else None
             break
-        packs[prefix] = PackInfo(
+        info = PackInfo(
             prefix=prefix,
             name=(device.name_by_user or device.name) if device else prefix,
             device_id=device_id,
             mac=mac,
             events=events,
         )
+        _add_others(info, er.async_entries_for_device(ent_reg, device_id))
+        packs[prefix] = info
     return packs
+
+
+def _add_others(info: PackInfo, entries: list[er.RegistryEntry]) -> None:
+    """The pack's other entities: the ones in ROLES, its settings, cells and balancing times."""
+    for entry in entries:
+        if entry.platform != "esphome" or entry.disabled_by is not None:
+            continue
+        name = slugify(entry.original_name or "")
+        if entry.domain == "number":
+            # A command ("SOC Set Cmd") reads back a live value, it isn't a setting.
+            if not name.endswith("_cmd"):
+                info.settings[entry.entity_id] = name
+        elif entry.domain != "sensor":
+            continue
+        elif (role := ROLES.get(name)) and role not in info.roles:
+            info.roles[role] = entry.entity_id
+        elif m := _CELL.match(name):
+            info.cells[int(m.group(1))] = entry.entity_id
+        elif m := _BALANCING.match(name):
+            info.balancing[int(m.group(1))] = entry.entity_id
 
 
 def _prefix(events: dict[str, str], device: dr.DeviceEntry | None) -> str | None:

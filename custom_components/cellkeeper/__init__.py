@@ -1,7 +1,9 @@
 """CellKeeper: the CellKeeper BMS dashboard, and a long-term history of its packs.
 
 It serves the dashboard (the custom:cellkeeper strategy, frontend.py) on every page, and keeps
-every event occurrence (from the HMI's event sensors) in its own SQLite database, so it outlives
+every event occurrence (from the HMI's event sensors), with a snapshot of the minute around each
+warning or worse, and a record of the pack's contactor operations, state changes, restarts,
+firmware and settings changes and balance charges in its own SQLite database, so they outlive
 the recorder's 10 days. The dashboard reads that over the websocket API.
 """
 
@@ -97,8 +99,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: CellKeeperConfigEntry) -
 
     async def sync(_now: object = None) -> None:
         now = dt_util.utcnow().timestamp()
-        for prefix in list(runtime.packs):
-            await runtime.async_write(prefix, [], [], {}, now)
+        for pack in list(runtime.packs.values()):
+            await pack.async_sync(now)
 
     entry.async_on_unload(async_track_time_interval(hass, sync, SYNC_INTERVAL))
 

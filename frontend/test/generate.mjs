@@ -124,6 +124,25 @@ check(
     toUnit(1, "furlong", "V") === undefined && toUnit(undefined, "V", "V") === undefined
 );
 
+const { recordRows } = await import("../src/events/records.js");
+const recs = recordRows(
+  [
+    { t: 100, kind: "contactor", key: "opened", old: "CLOSED", new: "OPEN", time_known: true, data: { values: { current: 80, pack_voltage: 400 } } },
+    { t: 200, kind: "setting", key: "max_charge_current", old: "50", new: "60", time_known: true, data: { by: "user", user: "Chester" } },
+    { t: 300, kind: "balance_charge", time_known: true, end: 7500, data: { before: { spread: 0.012 }, after: { spread: 0.003 }, balanced: { 2: 40 } } },
+    { t: 400, kind: "restart", key: "bms", time_known: true, data: { uptime_before: 90000 } },
+    { t: 500, kind: "nothing_known", time_known: true, data: {} },
+  ],
+  { states: {}, locale: { language: "en" } },
+  prefix
+);
+check(
+  "records: opened under load, who set a setting, a balance charge's spread and length, a restart",
+  recs.length === 4 && recs[0].warn && recs[0].text === "Contactors opened under load" &&
+    recs[1].detail.includes("by Chester") && recs[2].t === 7500000 && recs[2].text.includes("2 h") &&
+    recs[2].detail.includes("12 mV → 3 mV") && recs[2].detail.includes("1 cell bled") && recs[3].bms
+);
+
 const none = await generateDashboard({ prefix: "nope" }, hass);
 check("unknown prefix: one view explaining it", none.views.length === 1 && JSON.stringify(none).includes("No CellKeeper entities"));
 

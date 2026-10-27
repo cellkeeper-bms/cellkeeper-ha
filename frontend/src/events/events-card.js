@@ -3,6 +3,7 @@ import { PackCard, baseStyles, fmt, fmtDuration } from "../overview/base.js";
 import { define } from "../context.js";
 import { unsafeCSS } from "lit";
 import { LEVELS, LEVEL_COLORS, LEVEL_ICONS, PREVIOUS_COLOR, packEvents, escalationText, levelName, parseState } from "./model.js";
+import { recordRows, snapshotView } from "./records.js";
 
 // custom:cellkeeper-events-card
 //   prefix: ck0
@@ -13,7 +14,9 @@ import { LEVELS, LEVEL_COLORS, LEVEL_ICONS, PREVIOUS_COLOR, packEvents, escalati
 // status:  what is wrong right now, how bad, since when and what happens next.
 // log:     every event raised, escalated and cleared, with BMS starts and HMI outages, newest
 //          first. With the CellKeeper integration installed it comes from the integration's own
-//          database, which keeps it for years; without it, from Home Assistant's history of the
+//          database, which keeps it for years, along with the pack's activity (contactors, state
+//          changes, restarts, firmware, settings, balance charges) and, for a warning or worse, a
+//          snapshot of the minute before it; without it, from Home Assistant's history of the
 //          event sensors (10 days by default).
 // catalog: every event the firmware knows: what it means, how it starts and escalates, and its
 //          count since the BMS started.
@@ -171,7 +174,7 @@ function storeLog(result, events, bootKey) {
       continue;
     }
     rows.push({
-      t, e, level, count: o.count_to, after,
+      t, e, level, count: o.count_to, after, id: o.id, snapshot: o.snapshot,
       text: o.kind === "active" ? "Already active when the log began" : "Raised",
     });
     if (o.escalated_at) {
@@ -203,6 +206,15 @@ function storeLog(result, events, bootKey) {
   return rows.sort((a, b) => b.t - a.t);
 }
 
+// The pack's records with the events. A BMS restart record has the exact time the BMS started
+// (from its uptime), so it replaces the boot event's "BMS started" next to it.
+function withRecords(rows, records, hass, prefix) {
+  const recs = recordRows(records, hass, prefix);
+  const restarts = recs.filter((r) => r.bms).map((r) => r.t);
+  const kept = rows.filter((r) => r.kind !== "boot" || !restarts.some((t) => Math.abs(t - r.t) < 120000));
+  return [...kept, ...recs].sort((a, b) => b.t - a.t);
+}
+
 const historyCache = new Map(); // prefix (and range) -> { at, promise }
 
 class CellKeeperEventsCard extends PackCard {
@@ -215,6 +227,8 @@ class CellKeeperEventsCard extends PackCard {
     _open: { state: true },
     _areas: { state: true },
     _range: { state: true },
+    _showRecords: { state: true },
+    _snap: { state: true },
   };
 
   constructor() {
@@ -224,6 +238,8 @@ class CellKeeperEventsCard extends PackCard {
     this._filter = "";
     this._open = undefined;
     this._areas = {};
+    this._showRecords = true;
+    this._snap = undefined; // the occurrence whose snapshot is open: { id, data }
   }
 
   setConfig(config) {
@@ -252,7 +268,8 @@ class CellKeeperEventsCard extends PackCard {
   updated(changed) {
     if (this._config.mode !== "log" || !changed.has("hass") || !this.hass) return;
     // Re-read the history shortly after any event sensor changes.
-    const sig = packEvents(this.hass, this.prefix).map((e) => e.state).join("|");
+    const others = ["contactor_state_text", "system_state_text", "balance_charge_status"].map((k) => this.str(k));
+    const sig = [...packEvents(this.hass, this.prefix).map((e) => e.state), ...others].join("|");
     if (sig !== this._sig) {
       const first = this._sig === undefined;
       this._sig = sig;
@@ -273,11 +290,16 @@ class CellKeeperEventsCard extends PackCard {
         if (force || !hit || Date.now() - hit.at > 60000) {
           const msg = { type: "cellkeeper/events/list", prefix: this.prefix, limit: 5000 };
           if (days) msg.start = Date.now() / 1000 - days * 86400;
-          promise = this.hass.callWS(msg);
+          // Records came with 0.15.0: an older integration has none.
+          const records = this.hass
+            .callWS({ ...msg, type: "cellkeeper/records/list" })
+            .then((r) => r.records)
+            .catch(() => []);
+          promise = Promise.all([this.hass.callWS(msg), records]);
           historyCache.set(key, { at: Date.now(), promise });
         }
-        const result = await promise;
-        const log = storeLog(result, events, bootKey);
+        const [result, records] = await promise;
+        const log = withRecords(storeLog(result, events, bootKey), records, this.hass, this.prefix);
         log.more = result.more;
         this._log = log;
         return;
@@ -411,6 +433,12 @@ class CellKeeperEventsCard extends PackCard {
             </div>`
           : html`<span class="dim small">last ${this._config.days} days</span>`}
         <span class="spacer"></span>
+        ${stored
+          ? html`<button class="pill ${this._showRecords ? "on" : ""}" @click=${() => (this._showRecords = !this._showRecords)}
+              title="Contactors, state changes, restarts, firmware, settings and balance charges">
+              <ha-icon icon=${this._showRecords ? "mdi:checkbox-marked" : "mdi:checkbox-blank-outline"}></ha-icon>Activity
+            </button>`
+          : ""}
         <button class="pill ${this._showInfo ? "on" : ""}" @click=${() => (this._showInfo = !this._showInfo)}>
           <ha-icon icon=${this._showInfo ? "mdi:checkbox-marked" : "mdi:checkbox-blank-outline"}></ha-icon>Info events
         </button>
@@ -418,7 +446,7 @@ class CellKeeperEventsCard extends PackCard {
     `;
     if (!log) return html`<div class="wrap">${head}<div class="empty dim">Reading history…</div></div>`;
     if (log.error) return html`<div class="wrap">${head}<div class="empty dim">Couldn't read the history: ${log.error}</div></div>`;
-    const rows = log.filter((r) => r.kind || this._showInfo || r.level !== "INFO");
+    const rows = log.filter((r) => (r.kind === "rec" ? this._showRecords : r.kind || this._showInfo || r.level !== "INFO"));
     const shown = rows.slice(0, this._limit);
     let lastDay;
     return html`
@@ -444,6 +472,13 @@ class CellKeeperEventsCard extends PackCard {
   }
 
   _logRow(r) {
+    if (r.kind === "rec") {
+      return html`<div class="lrow rec ${r.warn ? "warn" : ""}">
+        <span class="t num">${clock(this.hass, r.t)}</span>
+        <ha-icon icon=${r.icon}></ha-icon>
+        <span class="ltext">${r.text}<span class="dim">${r.detail ? ` · ${r.detail}` : ""}${this._afterText(r)}</span></span>
+      </div>`;
+    }
     if (r.kind) {
       const icon = { boot: "mdi:restart", hmi: "mdi:lan-disconnect", ha: "mdi:home-assistant", start: "mdi:database-clock-outline" }[r.kind];
       return html`<div class="lrow sys">
@@ -453,13 +488,34 @@ class CellKeeperEventsCard extends PackCard {
       </div>`;
     }
     const c = r.cleared ? "var(--ck-muted)" : LEVEL_COLORS[r.level] ?? "var(--ck-muted)";
-    return html`<div class="lrow ${r.e.id ? "clickable" : ""}" style="--c:${c}" @click=${() => r.e.id && this.moreInfo(r.e.id)} title=${r.e.desc}>
-      <span class="t num">${clock(this.hass, r.t)}</span>
-      <ha-icon icon=${r.reset ? "mdi:restart" : r.cleared ? "mdi:check" : LEVEL_ICONS[r.level] ?? "mdi:alert-circle-outline"}></ha-icon>
-      <span class="ltext"
-        ><b>${r.e.name}</b> <span class="dim">${r.text}${r.cleared || !r.level ? "" : html` · ${levelName(r.level)}`}${r.n > 1 ? ` · ×${r.from}–${r.count}` : r.count > 1 ? ` · ×${r.count}` : ""}${this._afterText(r)}</span></span
-      >
-    </div>`;
+    // A warning or worse with a snapshot opens it; anything else opens the sensor's history.
+    const open = r.snapshot && this._snap?.id === r.id;
+    const click = () => (r.snapshot ? this._toggleSnapshot(r.id) : r.e.id && this.moreInfo(r.e.id));
+    return html`<div class="lrow ${r.e.id || r.snapshot ? "clickable" : ""}" style="--c:${c}" @click=${click} title=${r.e.desc}>
+        <span class="t num">${clock(this.hass, r.t)}</span>
+        <ha-icon icon=${r.reset ? "mdi:restart" : r.cleared ? "mdi:check" : LEVEL_ICONS[r.level] ?? "mdi:alert-circle-outline"}></ha-icon>
+        <span class="ltext"
+          ><b>${r.e.name}</b> <span class="dim">${r.text}${r.cleared || !r.level ? "" : html` · ${levelName(r.level)}`}${r.n > 1 ? ` · ×${r.from}–${r.count}` : r.count > 1 ? ` · ×${r.count}` : ""}${this._afterText(r)}</span
+          >${r.snapshot ? html`<ha-icon class="snap-icon" icon=${open ? "mdi:chevron-up" : "mdi:chart-line"} title="The minute before it"></ha-icon>` : ""}</span
+        >
+      </div>
+      ${open ? html`<div style="--c:${c}">${snapshotView(this.hass, this._snap.data)}
+          ${r.e.id ? html`<a class="snap-more" @click=${() => this.moreInfo(r.e.id)}>The event's history</a>` : ""}</div>` : ""}`;
+  }
+
+  async _toggleSnapshot(id) {
+    if (this._snap?.id === id) {
+      this._snap = undefined;
+      return;
+    }
+    this._snap = { id, data: undefined };
+    let data;
+    try {
+      data = await this.hass.callWS({ type: "cellkeeper/snapshot", occurrence_id: id });
+    } catch (err) {
+      data = { error: err.message ?? String(err) };
+    }
+    if (this._snap?.id === id) this._snap = { id, data };
   }
 
   // " · some time after 14:02" for a row seen only once the HMI or Home Assistant was back.
@@ -567,6 +623,7 @@ class CellKeeperEventsCard extends PackCard {
       }
       .head {
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
         gap: 8px;
         margin-bottom: 8px;
@@ -720,6 +777,7 @@ class CellKeeperEventsCard extends PackCard {
 
       /* log */
       .pill {
+        white-space: nowrap;
         display: inline-flex;
         align-items: center;
         gap: 4px;
@@ -743,6 +801,7 @@ class CellKeeperEventsCard extends PackCard {
         overflow: hidden;
       }
       .seg button {
+        white-space: nowrap;
         padding: 3px 9px;
         border: 0;
         background: transparent;
@@ -797,6 +856,52 @@ class CellKeeperEventsCard extends PackCard {
       .lrow.sys {
         border-top: 1px dashed var(--ck-line);
         border-radius: 0;
+      }
+      .lrow.rec ha-icon {
+        color: var(--ck-muted);
+      }
+      .lrow.rec.warn ha-icon {
+        color: ${unsafeCSS(LEVEL_COLORS.WARNING)};
+      }
+      .snap-icon {
+        --mdc-icon-size: 16px !important;
+        margin-left: 6px;
+        vertical-align: -3px;
+        color: var(--ck-muted) !important;
+      }
+      .snap {
+        margin: 2px 8px 8px calc(4.8em + 36px);
+        display: grid;
+        gap: 6px;
+      }
+      .snap-row {
+        display: grid;
+        gap: 2px;
+      }
+      .snap-label {
+        font-size: 12px;
+      }
+      .snap-label .dim {
+        margin-left: 6px;
+      }
+      .snap-svg {
+        width: 100%;
+        height: 54px;
+        border-radius: 4px;
+        background: color-mix(in srgb, var(--ck-line) 35%, transparent);
+      }
+      .snap-more {
+        display: block;
+        margin: -4px 8px 10px calc(4.8em + 36px);
+        font-size: 12px;
+        color: var(--primary-color);
+        cursor: pointer;
+      }
+      @media (max-width: 500px) {
+        .snap,
+        .snap-more {
+          margin-left: 8px;
+        }
       }
       .ltext b {
         font-weight: 500;
