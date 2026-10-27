@@ -29,3 +29,5 @@ remembered view settings.
 `python tools/make_events.py` rebuilds `src/events/catalog.js` from the firmware's event table, and
 `python tools/make_icons.py` rebuilds `src/icons.js` from the CellKeeper logo; both read the other
 CellKeeper repositories beside this one.
+`python tools/make_brand.py` (needs Pillow) draws the integration's icon and logo, in
+`../custom_components/cellkeeper/brand/`, from `src/icons.js`.

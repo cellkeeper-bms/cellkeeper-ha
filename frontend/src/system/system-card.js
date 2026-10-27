@@ -1,7 +1,7 @@
 import { html, css, nothing } from "lit";
 import { PackCard, baseStyles, fmt, fmtDuration } from "../overview/base.js";
 import { define } from "../context.js";
-import { RUNNING_VERSION, dashboardUpdate, sameVersion } from "../update.js";
+import { RUNNING_VERSION, dashboardUpdate, isVersion, sameVersion } from "../update.js";
 
 // custom:cellkeeper-system-card
 //   prefix: ck0
@@ -415,8 +415,9 @@ class CellKeeperSystemCard extends PackCard {
     // restart (the dashboard comes with the integration), and then the page a reload.
     if (installed && this._installedAtLoad === undefined) this._installedAtLoad = installed;
     const updated = installed && this._installedAtLoad && installed !== this._installedAtLoad;
-    // Restarted since, but this page still runs the version it loaded with.
-    const stale = !updated && installed && RUNNING_VERSION && !sameVersion(installed, RUNNING_VERSION);
+    // Restarted since, but this page still runs the version it loaded with. (Installed without a
+    // release, HACS shows a commit instead, which says nothing about the file this page runs.)
+    const stale = !updated && isVersion(installed) && RUNNING_VERSION && !sameVersion(installed, RUNNING_VERSION);
     const busy = a.in_progress === true || typeof a.in_progress === "number" || this._installing;
     if (this._installing && (updated || up?.state === "off")) this._installing = false;
     const available = up?.state === "on" && !updated;

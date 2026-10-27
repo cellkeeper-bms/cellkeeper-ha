@@ -27,3 +27,6 @@ export function dashboardUpdate(hass) {
 
 // "v0.11.6" and "0.11.6" are the same version.
 export const sameVersion = (a, b) => !!a && !!b && a.replace(/^v/, "") === b.replace(/^v/, "");
+
+// A release's version, not a commit (what HACS shows for a repository installed without releases).
+export const isVersion = (v) => /^v?\d+\.\d+/.test(v ?? "");

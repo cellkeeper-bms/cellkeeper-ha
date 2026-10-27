@@ -42,6 +42,16 @@ def test_bundle_matches_the_manifest() -> None:
     assert f"CellKeeper Dashboard {MANIFEST['version']} " in head
 
 
+def test_brand_images() -> None:
+    """The icon and logo Home Assistant shows for the integration (frontend/tools/make_brand.py)."""
+    brand = JS_PATH.parent.parent / "brand"
+    for name, size in (("icon.png", (256, 256)), ("icon@2x.png", (512, 512))):
+        data = (brand / name).read_bytes()
+        assert data[1:4] == b"PNG"
+        assert (int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")) == size
+    assert (brand / "logo.png").is_file() and (brand / "logo@2x.png").is_file()
+
+
 async def test_dashboard_is_served_on_every_page(env, hass: HomeAssistant, hass_client) -> None:
     entry = await setup(hass)
     url = f"{URL_BASE}/cellkeeper-dashboard.js?v={MANIFEST['version']}"
