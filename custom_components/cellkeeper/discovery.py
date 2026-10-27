@@ -33,6 +33,11 @@ ROLES = {
     "module_temperature_max": "temp_max",
     "current_limit_effective_charge": "limit_charge",
     "current_limit_effective_discharge": "limit_discharge",
+    "capacity": "capacity",
+    "inverter_can_voltage_limit_max": "charge_target",
+    "cell_voltage_max": "cell_max",
+    "soc_basic_count": "soc_basic",
+    "soc_voltage_based": "soc_voltage",
 }
 _CELL = re.compile(r"^cell_voltage_(\d+)$")
 _BALANCING = re.compile(r"^cell_balancing_time_(\d+)$")
@@ -59,6 +64,10 @@ class PackInfo:
             if key == BOOT_EVENT:
                 return entity_id
         return next(iter(self.events))
+
+    def setting(self, key: str) -> str | None:
+        """A setting's number entity, by its key (cell_voltage_working_max)."""
+        return next((e for e, k in self.settings.items() if k == key), None)
 
 
 def event_key(entry: er.RegistryEntry) -> str | None:

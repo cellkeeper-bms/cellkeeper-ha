@@ -3,7 +3,7 @@ import { PackCard, baseStyles, fmt, fmtDuration } from "../overview/base.js";
 import { define } from "../context.js";
 import { unsafeCSS } from "lit";
 import { LEVELS, LEVEL_COLORS, LEVEL_ICONS, PREVIOUS_COLOR, packEvents, escalationText, levelName, parseState } from "./model.js";
-import { recordRows, snapshotView } from "./records.js";
+import { ACTIVITY_KINDS, recordRows, snapshotView } from "./records.js";
 
 // custom:cellkeeper-events-card
 //   prefix: ck0
@@ -292,7 +292,7 @@ class CellKeeperEventsCard extends PackCard {
           if (days) msg.start = Date.now() / 1000 - days * 86400;
           // Records came with 0.15.0: an older integration has none.
           const records = this.hass
-            .callWS({ ...msg, type: "cellkeeper/records/list" })
+            .callWS({ ...msg, type: "cellkeeper/records/list", kinds: ACTIVITY_KINDS })
             .then((r) => r.records)
             .catch(() => []);
           promise = Promise.all([this.hass.callWS(msg), records]);

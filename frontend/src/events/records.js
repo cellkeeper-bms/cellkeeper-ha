@@ -7,6 +7,30 @@ import { fmt, fmtDuration } from "../overview/base.js";
 // A contactor opening at more current than this is "under load": that's what wears them.
 const LOAD_A = 5;
 
+// A setting that changes and changes back this quickly, not by a user, is the HMI reading it
+// while the BMS restarts (0, 1 or 65535 for a moment): both are left out.
+const GLITCH_S = 120;
+
+// The records without those setting glitches. Any order in, the same order out.
+export function withoutGlitches(records) {
+  const drop = new Set();
+  const settings = records.filter((r) => r.kind === "setting").sort((a, b) => a.t - b.t || a.id - b.id);
+  for (let i = 0; i + 1 < settings.length; i++) {
+    const a = settings[i];
+    const b = settings.slice(i + 1).find((r) => r.key === a.key);
+    if (!b || drop.has(a.id) || b.t - a.t > GLITCH_S) continue;
+    const byUser = a.data?.by === "user" || b.data?.by === "user";
+    if (!byUser && a.old === b.new && a.new === b.old) {
+      drop.add(a.id);
+      drop.add(b.id);
+    }
+  }
+  return drop.size ? records.filter((r) => !drop.has(r.id)) : records;
+}
+
+// The records the log shows (the daily health records are the Long Term view's).
+export const ACTIVITY_KINDS = ["contactor", "system_state", "system_request", "restart", "firmware", "setting", "balance_charge"];
+
 const STATES = { UNINIT: "Starting", INIT: "Initialising", CALIB: "Calibrating", INACTIVE: "Inactive", OPERATING: "Operating", FAULT: "Fault" };
 const REQUESTS = { NONE: "nothing", RUN: "run", STOP: "stop", CALIBRATE: "calibrate" };
 
@@ -41,7 +65,7 @@ function who(data) {
 // Log entries (like the events card's): { t, kind: "rec", icon, text, detail, warn, after }.
 export function recordRows(records, hass, prefix) {
   const rows = [];
-  for (const r of records) {
+  for (const r of withoutGlitches(records)) {
     const t = r.t * 1000;
     const after = r.time_known ? undefined : r.after ? r.after * 1000 : null;
     const d = r.data ?? {};

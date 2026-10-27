@@ -9,6 +9,8 @@ import "./overview/stat-card.js";
 import "./cells/history-card.js";
 import "./config/settings-card.js";
 import "./config/lock-card.js";
+import "./config/settings-history-card.js";
+import "./health/longterm-card.js";
 import "./events/events-card.js";
 import "./system/system-card.js";
 import { CellKeeperDashboardStrategy } from "./strategy.js";

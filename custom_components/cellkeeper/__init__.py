@@ -4,7 +4,9 @@ It serves the dashboard (the custom:cellkeeper strategy, frontend.py) on every p
 every event occurrence (from the HMI's event sensors), with a snapshot of the minute around each
 warning or worse, and a record of the pack's contactor operations, state changes, restarts,
 firmware and settings changes and balance charges in its own SQLite database, so they outlive
-the recorder's 10 days. The dashboard reads that over the websocket API.
+the recorder's 10 days. Once each day is over it adds the day's summary, its full charges and its
+lowest point (health.py), and a few sensors of its own count them (sensor.py). The dashboard reads
+all of it over the websocket API.
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ from pathlib import Path
 
 from homeassistant.components.recorder import get_instance
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EVENT_HOMEASSISTANT_STOP
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv, entity_registry as er
 from homeassistant.helpers.debounce import Debouncer
@@ -37,6 +39,9 @@ _LOGGER = logging.getLogger(__name__)
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
+# The integration's own sensors (sensor.py), on each pack's HMI device.
+PLATFORMS = [Platform.SENSOR]
+
 # How often the packs' "synced until" moves on when nothing changes, so a restart's catch-up
 # doesn't start far back.
 SYNC_INTERVAL = timedelta(minutes=10)
@@ -56,6 +61,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: CellKeeperConfigEntry) -
     await runtime.async_load()
     entry.runtime_data = runtime
     hass.data[DOMAIN] = runtime
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # The dashboard, on every page from now on.
     version = (await async_get_integration(hass, DOMAIN)).version
@@ -83,6 +89,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: CellKeeperConfigEntry) -
                 _LOGGER.exception("Couldn't start logging %s", prefix)
                 pack.async_stop()
                 runtime.packs.pop(prefix, None)
+                continue
+            if runtime.on_pack_started:
+                runtime.on_pack_started(prefix)
 
     entry.async_create_background_task(hass, start_packs(), "cellkeeper start packs")
 
@@ -113,6 +122,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: CellKeeperConfigEntry) -
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: CellKeeperConfigEntry) -> bool:
+    if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        return False
     await entry.runtime_data.async_close()
     hass.data.pop(DOMAIN, None)
     return True

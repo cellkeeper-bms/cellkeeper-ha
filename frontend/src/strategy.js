@@ -6,12 +6,14 @@ import { systemView } from "./views/system.js";
 import { logView } from "./views/log.js";
 import { eventView } from "./views/event.js";
 import { noteView } from "./views/note.js";
+import { longTermView } from "./views/longterm.js";
 
 // View key -> generator(ctx, options). Keys are what `hide_views` takes.
 export const VIEWS = {
   overview: (ctx, options) => overviewView(ctx, options),
   event: (ctx, options) => eventView(ctx, options),
   cell_history: (ctx) => (ctx.cellIds("cell_voltage").length ? cellHistoryView(ctx) : null),
+  long_term: (ctx) => longTermView(ctx),
   configuration: (ctx, options) => configurationView(ctx, options),
   system: (ctx, options) => systemView(ctx, options),
   log: (ctx) => logView(ctx),

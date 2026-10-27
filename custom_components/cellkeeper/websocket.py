@@ -5,7 +5,10 @@ cellkeeper/events/list                 a pack's occurrences and markers, newest 
 cellkeeper/events/subscribe            new and changed occurrences, markers, records and snapshots
                                        as they happen
 cellkeeper/records/list                a pack's records (contactor, state changes, restarts,
-                                       firmware, settings, balance charges), newest first
+                                       firmware, settings, balance charges; daily, full_charge,
+                                       empty), newest first
+cellkeeper/health/rebuild              (admin) work a pack's days out again from the recorder, in
+                                       the background
 cellkeeper/snapshot                    an occurrence's snapshot (the minute around it)
 cellkeeper/info                        the database: where, how big
 
@@ -34,6 +37,7 @@ def async_register_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_records_list)
     websocket_api.async_register_command(hass, ws_snapshot)
     websocket_api.async_register_command(hass, ws_info)
+    websocket_api.async_register_command(hass, ws_health_rebuild)
 
 
 def _runtime(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> Any:
@@ -148,3 +152,19 @@ async def ws_info(hass: HomeAssistant, connection: websocket_api.ActiveConnectio
     if not (runtime := _runtime(hass, connection, msg)):
         return
     connection.send_result(msg["id"], await runtime.store.run(hass, runtime.store.stats))
+
+
+@websocket_api.websocket_command({vol.Required("type"): "cellkeeper/health/rebuild", vol.Required("prefix"): str})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_health_rebuild(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
+    """Forget a pack's daily, full charge and empty records and work out every day the recorder
+    still has again (after a fix to how they're worked out). Older days are gone with them."""
+    if not (runtime := _runtime(hass, connection, msg)):
+        return
+    if (pack := runtime.packs.get(msg["prefix"])) is None:
+        connection.send_error(msg["id"], "not_found", "No such pack")
+        return
+    # A few seconds a day: it carries on in the background, and the records appear as it goes.
+    hass.async_create_background_task(pack.async_rebuild_health(), f"cellkeeper {msg['prefix']} health rebuild")
+    connection.send_result(msg["id"], {"started": True})

@@ -81,7 +81,7 @@ MIGRATIONS: list[str] = [
         prefix TEXT NOT NULL,
         t REAL NOT NULL,              -- when it happened (a restart: when it started)
         kind TEXT NOT NULL,           -- contactor, system_state, system_request, restart, firmware,
-                                      -- setting, balance_charge
+                                      -- setting, balance_charge; daily, full_charge, empty (health.py)
         key TEXT,                     -- contactor: closed, opened, failed; restart and firmware: bms, hmi;
                                       -- setting: the setting (max_charge_current)
         old TEXT,
@@ -322,6 +322,78 @@ class Store:
             (prefix, since),
         ).fetchall()
         return [(r["id"], r["raised_at"]) for r in rows]
+
+    def day_counts(self, prefix: str, start: float, end: float, load_a: float) -> dict[str, Any]:
+        """A day's contactor operations (and openings at more than load_a) and events raised, by
+        the level they were raised at."""
+        contactor = {
+            r["key"]: r["n"]
+            for r in self._db.execute(
+                """SELECT key, COUNT(*) AS n FROM records
+                   WHERE prefix = ? AND kind = 'contactor' AND t >= ? AND t < ? GROUP BY key""",
+                (prefix, start, end),
+            )
+        }
+        contactor["under_load"] = self._db.execute(
+            """SELECT COUNT(*) FROM records WHERE prefix = ? AND kind = 'contactor' AND key = 'opened'
+                 AND t >= ? AND t < ? AND ABS(COALESCE(json_extract(data, '$.values.current'), 0)) > ?""",
+            (prefix, start, end, load_a),
+        ).fetchone()[0]
+        # Each raise counts once: an event counted on every call (BMB read errors) folds
+        # thousands of repeats into one row.
+        events = {
+            r["start_level"]: r["n"]
+            for r in self._db.execute(
+                """SELECT start_level, COUNT(*) AS n FROM occurrences
+                   WHERE prefix = ? AND raised_at >= ? AND raised_at < ? AND kind IN ('raised', 'between')
+                   GROUP BY start_level""",
+                (prefix, start, end),
+            )
+            if r["start_level"]
+        }
+        return {"contactor": contactor, "events": events}
+
+    def delete_health(self, prefix: str) -> None:
+        """Forget a pack's daily, full charge and empty records, to work them out again."""
+        with self._lock:
+            self._db.execute("BEGIN")
+            self._db.execute("DELETE FROM records WHERE prefix = ? AND kind IN ('daily', 'full_charge', 'empty')", (prefix,))
+            self._db.execute("DELETE FROM trackers WHERE prefix = ? AND event = '_health'", (prefix,))
+            self._db.execute("COMMIT")
+
+    def health_totals(self, prefix: str, month_start: float, load_a: float) -> dict[str, Any]:
+        """What the pack's own sensors show: totals over everything logged."""
+        db = self._db
+        ops = db.execute(
+            "SELECT COUNT(*) FROM records WHERE prefix = ? AND kind = 'contactor' AND key IN ('closed', 'opened')",
+            (prefix,),
+        ).fetchone()[0]
+        under_load = db.execute(
+            """SELECT COUNT(*) FROM records WHERE prefix = ? AND kind = 'contactor' AND key = 'opened'
+                 AND ABS(COALESCE(json_extract(data, '$.values.current'), 0)) > ?""",
+            (prefix, load_a),
+        ).fetchone()[0]
+        cycles = db.execute(
+            "SELECT SUM(json_extract(data, '$.cycles')) FROM records WHERE prefix = ? AND kind = 'daily'", (prefix,)
+        ).fetchone()[0]
+        full = db.execute(
+            """SELECT t, json_extract(data, '$.cells.spread') AS spread FROM records
+               WHERE prefix = ? AND kind = 'full_charge' ORDER BY t DESC LIMIT 1""",
+            (prefix,),
+        ).fetchone()
+        warnings = db.execute(
+            """SELECT COUNT(*) FROM occurrences WHERE prefix = ? AND raised_at >= ?
+                 AND kind IN ('raised', 'between') AND start_level IN ('WARNING', 'CRITICAL', 'FATAL')""",
+            (prefix, month_start),
+        ).fetchone()[0]
+        return {
+            "contactor_operations": ops,
+            "contactor_openings_under_load": under_load,
+            "cycles": round(cycles, 3) if cycles is not None else 0.0,
+            "full_spread": full["spread"] if full else None,
+            "full_t": full["t"] if full else None,
+            "warnings_month": warnings,
+        }
 
     def snapshot(self, occurrence_id: int) -> dict[str, Any] | None:
         row = self._db.execute("SELECT data FROM snapshots WHERE occurrence_id = ?", (occurrence_id,)).fetchone()

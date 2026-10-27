@@ -6,8 +6,10 @@ one install:
 - **The dashboard**: the `custom:cellkeeper` dashboard strategy, three lines of config per pack,
   with an Overview, events, cell history in 2D and 3D, every BMS setting and the system's health.
 - **A long-term history** of each pack, kept in the integration's own database so it outlives the
-  recorder's 10 days: every event occurrence, so far. It works with the HMI's ESPHome entities as
-  they are, with nothing else to set up: no add-on, no automations, no `recorder:` changes.
+  recorder's 10 days: every event occurrence, what the pack did (contactors, restarts, settings,
+  balance charges), and its health day by day (cycles, every cell at each full charge and at the
+  day's lowest point, balancing per cell). It works with the HMI's ESPHome entities as they are,
+  with nothing else to set up: no add-on, no automations, no `recorder:` changes.
 
 ## Install
 
@@ -136,6 +138,24 @@ of what the group does to the pack right now:
 Numbers are edited with − / + (taps are grouped into one write) or by typing; values show in
 readable units (V, s) and "Saving…" until the BMS reports the new value back.
 
+With the integration, **Settings history** underneath lists who changed which setting and when: a
+user by name, an automation, or the HMI itself. A value the HMI reads for a moment while the BMS
+restarts (0, 1 or 65535, then back) is left out.
+
+### The Long Term view (with the integration)
+
+The pack's health over the years, from the integration's daily records (1 y or All):
+
+- **Totals**: equivalent full cycles with the Ah and kWh out, full charges, contactor operations
+  (and how many opened under load), and the days logged.
+- **Cell spread at full charge**, each time the pack reached full.
+- **Each cell against the mean at full charge**: the first full charge faint, the latest solid, so
+  a cell drifting away from the rest shows.
+- **Lowest and highest cell at the day's lowest point**, and which cell was most often the lowest.
+- **Cycles, contactor operations and events** per month (per day for the first two months).
+- **Balancing per cell** as a heatmap: a cell that needs more bleeding than the rest, month after
+  month, has a higher self-discharge.
+
 ### The Event view
 
 - **Status**: "All clear", or what is active now, worst first, each with what it means, how long
@@ -210,7 +230,7 @@ in `frontend/src/icons.js` are generated from the logo outline in
 | `configuration` | | `classic` for the original tile Configuration view instead. |
 | `events` | | `classic` for the original tile Event view instead. |
 | `system` | | `classic` for the original entities System view instead. |
-| `hide_views` | `[]` | Views to leave out: `overview`, `event`, `cell_history`, `configuration`, `system`, `log`, `note`. |
+| `hide_views` | `[]` | Views to leave out: `overview`, `event`, `cell_history`, `long_term`, `configuration`, `system`, `log`, `note`. |
 | `gauges` | | Change the classic Overview's gauges, keyed by `soc`, `pack_voltage`, `cell_voltage_min`, `cell_voltage_max`, `current`, `power`. Each takes [gauge card](https://www.home-assistant.io/dashboards/gauge/) options (`min`, `max`, `segments`, `severity`, `name`, …) that replace the defaults. |
 
 The classic Overview's default gauge ranges suit a 96s NMC pack. For example, for a 16s LFP pack:
@@ -322,6 +342,25 @@ As with occurrences, `time_known` false means it happened while the HMI or Home 
 some time after `after`. The first start after installing (or updating to 0.15.0) reads the
 recorder's whole history (10 days by default) for these.
 
+**Health.** Once each day is over (and for each day the recorder still had when the integration was
+installed), the integration works it out from the recorder's history:
+
+| `kind` | `key` | One row per | `data` |
+|---|---|---|---|
+| `daily` | the date | day with readings, `t` its start | `ah_in`, `ah_out`, `kwh_in`, `kwh_out`, `capacity` (Ah) and `cycles` (Ah out ÷ capacity), `covered` (share of the day with a current reading), `soc_min`, `soc_max`, `temp_min`, `temp_max`; `contactor`: closings, openings, failures and openings `under_load` (over 5 A); `events`: raises by level; `balancing`: seconds each cell was bled |
+| `full_charge` | | each time the pack reaches full | `cells`: every cell's voltage (`v`, cell 1 first), `min`, `max` and their cells, `spread`, `mean`; `values`: the SOC estimators, current, pack voltage, temperatures |
+| `empty` | the date | the day's lowest SOC | the same as a full charge |
+
+"Full" is the pack held at its charge target with the charge current tapered off (under 2 % of the
+capacity per hour, at least 1 A) for 5 minutes: within 0.01 V a cell of the inverter's charge
+voltage limit, or, without one, the highest cell within 30 mV of Cell Voltage Working Max. A
+floating pack counts once every 20 h, or again once the SOC has fallen 5 % below it.
+
+The integration also adds a device of its own for each pack, **ck0 history**, with sensors that
+Home Assistant's statistics keep forever: `sensor.ck0_contactor_operations`,
+`sensor.ck0_contactor_openings_under_load`, `sensor.ck0_equivalent_full_cycles`,
+`sensor.ck0_full_charge_spread` (mV) and `sensor.ck0_warnings_this_month`.
+
 **Snapshots.** For each warning, critical or fatal event raised at a known time: the pack's values
 for the 60 s before it and 10 s after, one per second, taken from the recorder once it has them
 (so they also exist for events in the recorder's history when the integration was installed).
@@ -340,6 +379,10 @@ whatever units Home Assistant shows them in.
 | `cellkeeper/records/list` | `{prefix, start?, end?, kinds?, before_id?, limit?}`: records, newest first |
 | `cellkeeper/snapshot` | `{occurrence_id}`: an occurrence's snapshot (occurrences have `snapshot: true` when there is one) |
 | `cellkeeper/info` | the database's path and size, and its row counts |
+| `cellkeeper/health/rebuild` | `{prefix}` (admin): forget the pack's health records and work out every day the recorder still has again, in the background |
+
+The integration's **diagnostics** download (Settings → Devices & services → CellKeeper → ⋮) has
+what it found for each pack and its newest rows, for a bug report.
 
 Times are seconds since the epoch (UTC).
 

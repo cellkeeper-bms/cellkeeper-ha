@@ -2,6 +2,8 @@
 
 Event sensors become occurrences (tracker.py), the state sensors and settings become records
 (records.py), and each warning or worse gets a snapshot of the minute around it (snapshot.py).
+Once a day is over, its summary, full charges and lowest point are worked out from the
+recorder (health.py).
 """
 
 from __future__ import annotations
@@ -19,10 +21,11 @@ from homeassistant.components.recorder.models import process_timestamp
 from homeassistant.components.recorder.util import session_scope
 from homeassistant.const import EVENT_CALL_SERVICE
 from homeassistant.core import Context, Event, EventStateChangedData, HassJob, HomeAssistant, State, callback
-from homeassistant.helpers.event import async_call_later, async_track_state_change_event
+from homeassistant.helpers.event import async_call_later, async_track_point_in_utc_time, async_track_state_change_event
 from homeassistant.util import dt as dt_util
 
 from .discovery import PackInfo
+from .health import DAY_ROLES, Day, FullDetector, balancing, cells_data
 from .records import RecordOp, RecordTracker
 from .snapshot import AFTER_S, BEFORE_S, RECORDER_LAG_S, SERIES, build
 from .tracker import EventTracker, Op, parse_state, rank
@@ -50,6 +53,14 @@ CONTACTOR_VALUES = ("current", "pack_voltage", "output_voltage", "soc")
 CALL_S = 30
 # At most this many snapshots are taken from the recorder's history on a catch-up, newest first.
 CATCH_UP_SNAPSHOTS = 200
+# A contactor opening at more current than this is "under load" (the dashboard says so too).
+LOAD_A = 5.0
+# A day is worked out this long after it ends, once the recorder has written its last states.
+DAY_LAG_S = 120
+# The day's states are read this much at a time (the current changes many times a second).
+DAY_CHUNK_S = 3600
+# The values kept with a full charge or the day's lowest point, besides the cells.
+HEALTH_VALUES = ("soc", "soc_basic", "soc_voltage", "current", "pack_voltage", "temp_min", "temp_max")
 
 
 def ha_starts(hass: HomeAssistant, since: datetime) -> list[float]:
@@ -85,6 +96,11 @@ class PackLogger:
         self._offline_at_start = False  # the outage began as Home Assistant started
         self._presence_known = False
         self._starts: list[float] = []
+        # Health (health.py): the last day worked out, and the full charge detector across days.
+        self._health_day: str | None = None
+        self._full = FullDetector(cells=len(info.cells))
+        self._day_values: dict[str, float | None] = {}
+        self._health_lock = asyncio.Lock()
 
     @property
     def prefix(self) -> str:
@@ -109,6 +125,9 @@ class PackLogger:
         self._records_new = "_records" not in saved
         if records := saved.get("_records"):
             self.records.restore(records)
+        if health := saved.get("_health"):
+            self._health_day = health.get("day")
+            self._full.restore(health.get("full") or {})
         presence = saved.get("_presence")
         if presence:
             self._offline_since = presence.get("offline_since")
@@ -126,6 +145,7 @@ class PackLogger:
         buffered, self._buffer = self._buffer, []
         for state, context in buffered:
             self._feed_live(state, context)
+        self.hass.async_create_background_task(self._health_catch_up(), f"cellkeeper {self.prefix} health")
 
     @callback
     def async_stop(self) -> None:
@@ -459,6 +479,131 @@ class PackLogger:
         data = build(t, values, cells)
         if not self._stopped:
             await self.runtime.async_write(self.prefix, [], [], {}, None, snapshots=[(occurrence_id, t, data)])
+
+    # ---- health: each day, once it's over ----
+
+    async def async_rebuild_health(self) -> int:
+        """Forget the health records and work out every day the recorder still has again.
+        Returns how many days were worked out."""
+        async with self._health_lock:
+            store = self.runtime.store
+            await store.run(self.hass, store.delete_health, self.prefix)
+            self._health_day = None
+            self._full = FullDetector(cells=len(self.info.cells))
+            self._day_values = {}
+        await self._health_catch_up(reschedule=False)
+        rows = await self.runtime.store.run(self.hass, self.runtime.store.records, self.prefix, None, None, ["daily"], None, 5000)
+        return len(rows)
+
+    async def _health_catch_up(self, reschedule: bool = True) -> None:
+        """Work out every day that's over and not done yet (the first time, every day the
+        recorder still has), then come back after the next midnight."""
+        async with self._health_lock:
+            recorder = get_instance(self.hass)
+            now = dt_util.now()
+            today = dt_util.start_of_local_day(now)
+            if self._health_day:
+                first = dt_util.start_of_local_day(datetime.fromisoformat(self._health_day).date() + timedelta(days=1))
+            else:
+                first = dt_util.start_of_local_day((now - timedelta(days=recorder.keep_days)).date() + timedelta(days=1))
+            # Days the recorder no longer has are gone: start where it still has a whole day.
+            oldest = dt_util.start_of_local_day((now - timedelta(days=recorder.keep_days)).date() + timedelta(days=1))
+            day = max(first, oldest)
+            while day < today:
+                if self._stopped:
+                    return
+                end = dt_util.start_of_local_day(day.date() + timedelta(days=1))
+                # The recorder needs a moment after midnight for the day's last states.
+                if end.timestamp() + DAY_LAG_S > time.time():
+                    break
+                try:
+                    await self._health_one_day(day, end)
+                except Exception:
+                    _LOGGER.exception("%s: couldn't work out %s", self.prefix, day.date())
+                    break
+                day = end
+        if self._stopped or not reschedule:
+            return
+        when = dt_util.start_of_local_day(dt_util.now().date() + timedelta(days=1)) + timedelta(seconds=DAY_LAG_S)
+        self._unsubs.append(
+            async_track_point_in_utc_time(
+                self.hass, HassJob(self._health_due, cancel_on_shutdown=True), dt_util.as_utc(when)
+            )
+        )
+
+    @callback
+    def _health_due(self, _now: Any) -> None:
+        if not self._stopped:
+            self.hass.async_create_background_task(self._health_catch_up(), f"cellkeeper {self.prefix} health")
+
+    async def _health_one_day(self, day: datetime, end: datetime) -> None:
+        recorder = get_instance(self.hass)
+        start_ts, end_ts = day.timestamp(), end.timestamp()
+        roles = {self.info.roles[r]: r for r in DAY_ROLES if r in self.info.roles}
+        units = {e: self._unit(e) for e in roles}
+        if working := self.info.setting("cell_voltage_working_max"):
+            at = await recorder.async_add_executor_job(states_at, self.hass, start_ts, [working])
+            self._full.working_max = to_si(at.get(working), self._unit(working))
+        self._full.cells = len(self.info.cells)
+
+        # The day before's last values, so a full charge's hold carries on over midnight.
+        d = Day(start_ts, end_ts, self._full, values=dict(self._day_values))
+        t0 = start_ts
+        while t0 < end_ts:
+            if self._stopped:
+                return
+            t1 = min(t0 + DAY_CHUNK_S, end_ts)
+            # From just before t0: a change exactly at t0 isn't one the state in force at t0 has.
+            pts = await recorder.async_add_executor_job(series, self.hass, t0 - 0.001, t1, list(roles))
+            merged = sorted(
+                (t, roles[e], to_si(s, units[e])) for e, entity_states in pts.items() for t, s in entity_states if t < t1
+            )
+            for t, role, value in merged:
+                d.feed(t, role, value)
+            t0 = t1
+        d.finish()
+        self._day_values = d.values
+
+        bal_units = {e: self._unit(e) for e in self.info.balancing.values()}
+        bal_pts = await recorder.async_add_executor_job(
+            series, self.hass, start_ts, end_ts, list(self.info.balancing.values())
+        )
+        by_cell = {
+            n: [(t, to_si(s, bal_units[e])) for t, s in bal_pts.get(e, [])] for n, e in self.info.balancing.items()
+        }
+        store = self.runtime.store
+        counts = await store.run(self.hass, store.day_counts, self.prefix, start_ts, end_ts, LOAD_A)
+
+        key = day.date().isoformat()
+        recs: list[RecordOp] = []
+
+        def rec(t: float, kind: str, data: dict[str, Any], rkey: str | None = key) -> None:
+            recs.append(RecordOp("insert", self.runtime.next_record_id(), {
+                "prefix": self.prefix, "t": t, "kind": kind, "key": rkey, "old": None, "new": None,
+                "time_known": True, "after": None, "data": data,
+            }))
+
+        if not d.empty:
+            rec(start_ts, "daily", {**d.summary(), **counts, "balancing": balancing(by_cell)})
+        if d.soc_min is not None:
+            rec(d.soc_min[1], "empty", await self._health_values(d.soc_min[1]))
+        for t in d.fulls:
+            rec(t, "full_charge", await self._health_values(t), None)
+        await self.runtime.async_write(
+            self.prefix, [], [], {"_health": {"day": key, "full": self._full.snapshot()}}, None, recs
+        )
+        self._health_day = key
+        _LOGGER.debug("%s: %s worked out: %s full charges", self.prefix, key, len(d.fulls))
+
+    async def _health_values(self, t: float) -> dict[str, Any]:
+        """Every cell and the pack's values at t, from the recorder."""
+        ids = {r: self.info.roles[r] for r in HEALTH_VALUES if r in self.info.roles}
+        states = await self._states_at(t, [*ids.values(), *self.info.cells.values()], False)
+        cells = {n: to_si(states.get(e), self._unit(e)) for n, e in self.info.cells.items()}
+        return {
+            "cells": cells_data(cells) if cells else None,
+            "values": {r: _round(to_si(states.get(e), self._unit(e))) for r, e in ids.items()},
+        }
 
 
 def _round(v: float | None) -> float | None:

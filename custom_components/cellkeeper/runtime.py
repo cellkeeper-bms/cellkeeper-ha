@@ -29,6 +29,8 @@ class Runtime:
         self.store = store
         self.packs: dict[str, PackLogger] = {}
         self.listeners: list[Listener] = []
+        # The sensor platform's: adds a pack's sensors once it's logging.
+        self.on_pack_started: Callable[[str], None] | None = None
         self._id = 0
         self._record_id = 0
         self.closed = False

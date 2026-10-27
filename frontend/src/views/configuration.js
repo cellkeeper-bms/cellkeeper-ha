@@ -405,6 +405,10 @@ export function configurationView(ctx, options = {}) {
         : null,
       { cards: left },
       { cards: cards.slice(left.length) },
+      // Who changed what, from the CellKeeper integration's records.
+      ctx.hass.config?.components?.includes("cellkeeper")
+        ? { column_span: 2, cards: [{ type: "custom:cellkeeper-settings-history-card", prefix: ctx.prefix }] }
+        : null,
     ].filter((sec) => sec && sec.cards.length),
   };
 }

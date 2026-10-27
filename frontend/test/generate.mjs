@@ -143,6 +143,27 @@ check(
     recs[2].detail.includes("12 mV → 3 mV") && recs[2].detail.includes("1 cell bled") && recs[3].bms
 );
 
+const { withoutGlitches } = await import("../src/events/records.js");
+const glitchy = withoutGlitches([
+  { id: 1, t: 1000, kind: "setting", key: "minimum_balancing_voltage", old: "3770", new: "1", data: {} },
+  { id: 2, t: 1030, kind: "setting", key: "minimum_balancing_voltage", old: "1", new: "3770", data: {} },
+  { id: 3, t: 2000, kind: "setting", key: "max_charge_current", old: "50", new: "60", data: { by: "user" } },
+  { id: 4, t: 2010, kind: "setting", key: "max_charge_current", old: "60", new: "50", data: { by: "user" } },
+  { id: 5, t: 3000, kind: "setting", key: "soc_scaling_max", old: "100", new: "95", data: {} },
+]);
+check("settings: a restart's read-and-back is left out, a user's change and undo aren't", glitchy.map((r) => r.id).join() === "3,4,5");
+
+// With the integration: the Long Term view after Cell History, and the settings history.
+const withIntegration = { ...fakeHass(), config: { components: ["cellkeeper"] } };
+const integrated = await generateDashboard({ prefix }, withIntegration);
+const titles = integrated.views.map((v) => v.title);
+check(
+  "with the integration: a Long Term view and the settings history",
+  titles[3] === "Long Term" &&
+    JSON.stringify(integrated.views[3]).includes("custom:cellkeeper-longterm-card") &&
+    JSON.stringify(integrated.views.find((v) => v.title === "Configuration")).includes("custom:cellkeeper-settings-history-card")
+);
+
 const none = await generateDashboard({ prefix: "nope" }, hass);
 check("unknown prefix: one view explaining it", none.views.length === 1 && JSON.stringify(none).includes("No CellKeeper entities"));
 

@@ -76,7 +76,10 @@ def series(hass: HomeAssistant, start: float, end: float | None, entity_ids: lis
 def states_at(hass: HomeAssistant, t: float, entity_ids: list[str]) -> dict[str, str]:
     """Each entity's state at time t, from the recorder. Runs in the recorder's executor."""
     out: dict[str, str] = {}
-    for entity_id, pts in series(hass, t, t + timedelta(milliseconds=1).total_seconds(), entity_ids).items():
+    # From just before t: the history's changes start after its start, so one made exactly at t
+    # would be missed.
+    ms = timedelta(milliseconds=1).total_seconds()
+    for entity_id, pts in series(hass, t - ms, t + ms, entity_ids).items():
         before = [s for when, s in pts if when <= t + 0.0005]
         if before:
             out[entity_id] = before[-1]
