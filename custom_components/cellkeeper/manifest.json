@@ -5,10 +5,10 @@
   "codeowners": ["@clowrey"],
   "config_flow": true,
   "dependencies": ["frontend", "http", "recorder", "websocket_api"],
-  "documentation": "https://github.com/clowrey/CellKeeper-HA",
+  "documentation": "https://github.com/cellkeeper-bms/cellkeeper-ha",
   "integration_type": "service",
   "iot_class": "calculated",
-  "issue_tracker": "https://github.com/clowrey/CellKeeper-HA/issues",
+  "issue_tracker": "https://github.com/cellkeeper-bms/cellkeeper-ha/issues",
   "requirements": [],
   "single_config_entry": true,
   "version": "0.15.0"

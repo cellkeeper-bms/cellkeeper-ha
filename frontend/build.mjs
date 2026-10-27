@@ -23,7 +23,7 @@ const options = {
   target: "es2021",
   minify: true,
   legalComments: "none",
-  banner: { js: `/* CellKeeper Dashboard ${shown} - https://github.com/clowrey/CellKeeper-HA */` },
+  banner: { js: `/* CellKeeper Dashboard ${shown} - https://github.com/cellkeeper-bms/cellkeeper-ha */` },
   define: { __VERSION__: JSON.stringify(shown) },
 };
 

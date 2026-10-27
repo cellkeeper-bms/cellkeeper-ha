@@ -1,6 +1,6 @@
 # CellKeeper for Home Assistant
 
-The Home Assistant side of [CellKeeper](https://github.com/clowrey/CellKeeper-BMS-LCD) BMS packs, in
+The Home Assistant side of [CellKeeper](https://github.com/cellkeeper-bms) BMS packs, in
 one install:
 
 - **The dashboard**: the `custom:cellkeeper` dashboard strategy, three lines of config per pack,
@@ -11,7 +11,7 @@ one install:
 
 ## Install
 
-1. HACS → ⋮ → **Custom repositories** → add `https://github.com/clowrey/CellKeeper-HA`, type
+1. HACS → ⋮ → **Custom repositories** → add `https://github.com/cellkeeper-bms/cellkeeper-ha`, type
    **Integration**, and download **CellKeeper**.
 2. Restart Home Assistant.
 3. **Settings → Devices & services → Add integration → CellKeeper.** It lists the packs it found
@@ -70,7 +70,7 @@ strategy:
   prefix: ck0
 ```
 
-![Overview of a 96s NMC pack discharging: battery gauge at 99.7 %, power flow against the charge and discharge limits, 24 h chart, cell voltages with balancing, temperature, energy, isolation and inverter cards](https://raw.githubusercontent.com/clowrey/CellKeeper-HA/main/frontend/docs/overview-ck0.webp)
+![Overview of a 96s NMC pack discharging: battery gauge at 99.7 %, power flow against the charge and discharge limits, 24 h chart, cell voltages with balancing, temperature, energy, isolation and inverter cards](https://raw.githubusercontent.com/cellkeeper-bms/cellkeeper-ha/main/frontend/docs/overview-ck0.webp)
 
 Views: **Overview** (below), **Event** (every event type, coloured by state), **Cell History**,
 **Configuration** (all BMS settings), **System**, **Log** and **Note**.
@@ -111,7 +111,7 @@ page reflows from phone to wide screen in light and dark themes.
 
 The same page for a 108s LFP pack, idle and floating between balance charges:
 
-![Overview of a 108s LFP pack: idle at 99.2 %, charge limited by cell voltage, a floating balance charge scheduled, 12 mV cell spread](https://raw.githubusercontent.com/clowrey/CellKeeper-HA/main/frontend/docs/overview-ck1.webp)
+![Overview of a 108s LFP pack: idle at 99.2 %, charge limited by cell voltage, a floating balance charge scheduled, 12 mV cell spread](https://raw.githubusercontent.com/cellkeeper-bms/cellkeeper-ha/main/frontend/docs/overview-ck1.webp)
 
 ### The Configuration view
 
@@ -176,7 +176,7 @@ rebuilds `frontend/src/events/catalog.js` from that table and the HMI's `bms_cor
   memory and loop time, the backlight, and buttons to open its web page and to restart it (tap twice). **All sensors** opens the pack's device page in Home
   Assistant, which lists every sensor the HMI publishes.
 
-  The firmware builds come from the HMI's BMS Firmware and HMI Firmware sensors (CellKeeper-BMS-LCD
+  The firmware builds come from the HMI's BMS Firmware and HMI Firmware sensors ([cellkeeper-hmi](https://github.com/cellkeeper-bms/cellkeeper-hmi)
   with BMS firmware that reports its build ID, registers 68/69); with older firmware the card says
   so.
 - **Dashboard**: the version and, when the integration was installed through HACS, whether a
@@ -196,7 +196,7 @@ sidebar icon (**Settings → Dashboards →** your dashboard **→ Icon**):
 
 They show everywhere, since the integration loads the dashboard on every page. The icon paths
 in `frontend/src/icons.js` are generated from the logo outline in
-[CellKeeper-BMS-PCB](https://github.com/clowrey/CellKeeper-BMS-PCB)
+[cellkeeper-hardware](https://github.com/cellkeeper-bms/cellkeeper-hardware)
 (`enclosure/cellkeeper_logo.json`) by `python frontend/tools/make_icons.py`.
 
 ## Options
