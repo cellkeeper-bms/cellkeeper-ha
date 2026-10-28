@@ -76,6 +76,7 @@ DESCRIPTIONS = {
     "RESTARTING": "The BMS is restarting.",
     "LINK_VOLTAGE_MISMATCH": "With the link contactors closed, the link rail doesn't follow the pack voltage: one may have dropped out.",
     "FUSE_VOLTAGE_DROP_HIGH": "With current flowing there is a large drop across the fuse or jumper: blown, or an open connection.",
+    "BMB_PACK_MISMATCH": "The cells the monitor boards report don't match the BMS's cell map: a board or cell missing, or the wrong pack.",
     "ISOLATION_ASYMMETRY": "The boot-time isolation zero check found a large offset: a possible leak to chassis.",
     "CONTACTOR_PORT_ENERGIZED": "The inverter held the battery port live with the contactors open, so the BMS precharged onto it instead of the weld test.",
     "BOARD_MISMATCH": "The PCB revision strap doesn't match the firmware build.",

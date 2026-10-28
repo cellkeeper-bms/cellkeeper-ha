@@ -183,7 +183,7 @@ The pack's health over the years, from the integration's daily records (1 y or A
     from the HMI's Module IDs sensor.
   - If the integration isn't running, the log reads Home Assistant's history of the event sensors
     instead (10 days by default), without activity or snapshots.
-- **All events**: the firmware's 61 events grouped by area, with what each means, the level it
+- **All events**: the firmware's 62 events grouped by area, with what each means, the level it
   starts at, when it turns fatal, and its count since the BMS started. Searchable.
 
 The levels and escalation rules come from the firmware's event table (`bms/sys/events/events.h`

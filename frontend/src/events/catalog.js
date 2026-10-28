@@ -1069,9 +1069,27 @@ export const EVENT_CATALOG = {
       ]
     }
   },
+  "warning_bmb_pack_mismatch": {
+    "type": "BMB_PACK_MISMATCH",
+    "id": 53,
+    "name": "BMB Pack Mismatch",
+    "level": "WARNING",
+    "area": "Monitor boards",
+    "desc": "The cells the monitor boards report don't match the BMS's cell map: a board or cell missing, or the wrong pack.",
+    "data": {
+      "fields": [
+        {
+          "type": "u32",
+          "bit": 0,
+          "unit": "count",
+          "name": "channels that differ from the cell map"
+        }
+      ]
+    }
+  },
   "warning_isolation_asymmetry": {
     "type": "ISOLATION_ASYMMETRY",
-    "id": 53,
+    "id": 54,
     "name": "Isolation Asymmetry",
     "level": "WARNING",
     "area": "System",
@@ -1089,7 +1107,7 @@ export const EVENT_CATALOG = {
   },
   "info_contactor_port_energized": {
     "type": "CONTACTOR_PORT_ENERGIZED",
-    "id": 54,
+    "id": 55,
     "name": "Contactor Port Energized",
     "level": "INFO",
     "area": "Contactors",
@@ -1107,7 +1125,7 @@ export const EVENT_CATALOG = {
   },
   "fatal_board_mismatch": {
     "type": "BOARD_MISMATCH",
-    "id": 55,
+    "id": 56,
     "name": "Board Mismatch",
     "level": "FATAL",
     "area": "System",
@@ -1131,7 +1149,7 @@ export const EVENT_CATALOG = {
   },
   "warning_supervisor_not_enabled": {
     "type": "SUPERVISOR_NOT_ENABLED",
-    "id": 56,
+    "id": 57,
     "name": "Supervisor Not Enabled",
     "level": "WARNING",
     "area": "Contactors",
@@ -1161,7 +1179,7 @@ export const EVENT_CATALOG = {
   },
   "fatal_supervisor_disabled_contactors": {
     "type": "SUPERVISOR_DISABLED_CONTACTORS",
-    "id": 57,
+    "id": 58,
     "name": "Supervisor Disabled Contactors",
     "level": "CRITICAL",
     "escalate": {
@@ -1194,7 +1212,7 @@ export const EVENT_CATALOG = {
   },
   "warning_bmb_module_id_check_failed": {
     "type": "BMB_MODULE_ID_CHECK_FAILED",
-    "id": 58,
+    "id": 59,
     "name": "BMB Module ID Check Failed",
     "level": "WARNING",
     "area": "Monitor boards",
@@ -1218,7 +1236,7 @@ export const EVENT_CATALOG = {
   },
   "info_bmb_module_id_unknown": {
     "type": "BMB_MODULE_ID_UNKNOWN",
-    "id": 59,
+    "id": 60,
     "name": "BMB Module ID Unknown",
     "level": "INFO",
     "area": "Monitor boards",
@@ -1236,7 +1254,7 @@ export const EVENT_CATALOG = {
   },
   "fatal_bmb_module_id_conflict": {
     "type": "BMB_MODULE_ID_CONFLICT",
-    "id": 60,
+    "id": 61,
     "name": "BMB Module ID Conflict",
     "level": "FATAL",
     "area": "Monitor boards",
