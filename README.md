@@ -343,7 +343,7 @@ Repeats within 10 minutes of each other fold into one row.
 | `contactor` | `closed`, `opened`, `failed` | closing, opening, or a failed pre-charge or contactor test | `values`: current, pack and output voltage, SOC at that moment |
 | `system_state` | | each change of the BMS state (Inactive, Operating, Fault…) | |
 | `system_request` | | each request (run, stop, calibrate) | |
-| `restart` | `bms`, `hmi` | each restart, from the BMS's millis and the HMI's uptime dropping; `t` is when it started | `uptime_before` (s) |
+| `restart` | `bms`, `hmi` | each restart, from the BMS's millis and the HMI's uptime dropping, once the next reading agrees (a lone garbage reading isn't one); `t` is when it started | `uptime_before` (s) |
 | `firmware` | `bms`, `hmi` | each firmware change, and the firmware seen when logging began | |
 | `modules` | | each change of the HMI's Module IDs ("023 023 · pack type 34"), and the IDs seen when logging began | |
 | `setting` | the setting (`max_charge_current`) | each change of a `number` setting | `by`: `user` (with `user`, their name), `automation`, or `hmi` (its touch screen or its own scripts); missing for changes read from the recorder's history |

@@ -15,9 +15,14 @@ import sqlite3
 import threading
 from typing import Any
 
+from .records import RESTART_DROP_S, UPTIME_DRIFT
+
 _LOGGER = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 2
+
+# The first restart's uptime before has nothing to fit in: more than this is a misread.
+MISREAD_UPTIME_S = 10 * 365 * 86400
 
 # Each migration takes the database from version i to i + 1.
 MIGRATIONS: list[str] = [
@@ -143,6 +148,7 @@ class Store:
         db.execute("PRAGMA foreign_keys=ON")
         self._db = db
         self._migrate()
+        self._repair()
 
     def close(self) -> None:
         if self._db is not None:
@@ -160,6 +166,44 @@ class Store:
             # One transaction per step: the schema and its version change together.
             db.executescript(f"BEGIN; {MIGRATIONS[version]} PRAGMA user_version={version + 1}; COMMIT;")
             version += 1
+
+    def _repair(self) -> None:
+        """One-off fixes to rows earlier versions got wrong, each run once (listed in meta)."""
+        db = self._db
+        done = {r[0] for r in db.execute("SELECT key FROM meta WHERE key LIKE 'repair:%'")}
+        for name, fn in (("repair:misread_restarts", self._drop_misread_restarts),):
+            if name in done:
+                continue
+            db.execute("BEGIN")
+            n = fn()
+            db.execute("INSERT INTO meta (key, value) VALUES (?, ?)", (name, str(n)))
+            db.execute("COMMIT")
+            if n:
+                _LOGGER.info("Removed %s restart records made from misread uptimes", n)
+
+    def _drop_misread_restarts(self) -> int:
+        """Up to 0.17.1 a single garbage uptime reading made a restart. A real one's uptime before
+        fits in the time since the boot before it started, and no two boots start together."""
+        db = self._db
+        rows = db.execute("SELECT id, prefix, key, t, data FROM records WHERE kind = 'restart' ORDER BY prefix, key, t")
+        bad: list[int] = []
+        last: dict[tuple[str, str], float] = {}
+        for row_id, prefix, key, t, data in sorted(
+            rows, key=lambda r: (r[1], r[2], r[3], (json.loads(r[4]) if r[4] else {}).get("uptime_before", 0))
+        ):
+            before = (json.loads(data) if data else {}).get("uptime_before")
+            prev = last.get((prefix, key))
+            if before is not None and prev is not None:
+                since = t - prev
+                if since < RESTART_DROP_S or before > since + RESTART_DROP_S + since * UPTIME_DRIFT:
+                    bad.append(row_id)
+                    continue
+            elif before is not None and before > MISREAD_UPTIME_S:
+                bad.append(row_id)
+                continue
+            last[(prefix, key)] = t
+        db.executemany("DELETE FROM records WHERE id = ?", [(i,) for i in bad])
+        return len(bad)
 
     def checkpoint(self) -> None:
         """Write the WAL into the main file, so a copy of the file alone is complete."""

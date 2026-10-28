@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import itertools
+import json
 
 import pytest
 
 from custom_components.cellkeeper.records import RecordTracker
 from custom_components.cellkeeper.snapshot import AFTER_S, BEFORE_S, build
+from custom_components.cellkeeper.store import Store
 
 
 def tracker() -> RecordTracker:
@@ -47,14 +49,56 @@ def test_restarts_from_uptime():
     tr = tracker()
     tr.feed(100, "millis", 5000.0)
     assert tr.feed(101, "millis", 5001.0) == []
-    (row,) = inserts(tr.feed(200, "millis", 30.0))
+    # A later start is a restart once the next reading agrees.
+    assert tr.feed(200, "millis", 30.0) == []
+    (row,) = inserts(tr.feed(201, "millis", 31.0))
     assert (row["kind"], row["key"]) == ("restart", "bms")
     assert row["t"] == 170 and row["time_known"] and row["data"] == {"uptime_before": 5001}
     # The millis counter wrapping after 49.7 days isn't a restart.
-    tr.feed(300, "millis", 2**32 / 1000 - 10)
-    assert tr.feed(320, "millis", 10.0) == []
-    (row,) = inserts(tr.feed(1000, "uptime_hmi", 0.0) + tr.feed(1100, "uptime_hmi", 90.0) + tr.feed(1200, "uptime_hmi", 5.0))
-    assert row["key"] == "hmi" and row["t"] == 1195
+    tr.feed(300 + 2**32 / 1000, "millis", 2**32 / 1000 + 130)
+    tr.feed(320 + 2**32 / 1000, "millis", 10.0)
+    assert tr.feed(321 + 2**32 / 1000, "millis", 11.0) == []
+    rows = inserts(sum((tr.feed(t, "uptime_hmi", up) for t, up in ((1000, 0.0), (1100, 100.0), (1200, 5.0), (1260, 65.0))), []))
+    (row,) = rows
+    assert row["key"] == "hmi" and row["t"] == 1195 and row["data"] == {"uptime_before": 100}
+
+
+def test_misread_uptimes_are_not_restarts():
+    tr = tracker()
+    tr.feed(100, "millis", 5000.0)
+    # A reading far too high (more uptime than time has passed) is skipped...
+    assert tr.feed(101, "millis", 9.2e15) == []
+    # ...and so is one too low that the next reading doesn't agree with.
+    assert tr.feed(102, "millis", 300.0) == []
+    assert tr.feed(103, "millis", 5003.0) == []
+    assert tr.last["millis"] == 5003.0
+    # A restart that the next reading confirms, after a misread in between, uses the boot it ended.
+    assert tr.feed(200, "millis", 10.0) == []
+    assert tr.feed(201, "millis", 1e12) == []
+    (row,) = inserts(tr.feed(202, "millis", 12.0))
+    assert row["t"] == 190 and row["data"] == {"uptime_before": 5003}
+    # The clocks drifting apart over a long gap isn't a misread.
+    assert tr.feed(10202, "millis", 10024.0) == []
+    assert tr.last["millis"] == 10024.0
+
+
+def test_restart_waiting_for_its_next_reading_survives_a_restore():
+    tr = tracker()
+    tr.feed(100, "millis", 5000.0)
+    tr.feed(200, "millis", 30.0)
+    again = tracker()
+    again.restore(tr.snapshot())
+    (row,) = inserts(again.feed(260, "millis", 90.0))
+    assert row["t"] == 170
+
+
+def test_uptime_from_before_the_boot_was_kept():
+    """A snapshot from 0.17.1 or earlier has only the last uptime."""
+    tr = tracker()
+    tr.restore({"last": {"millis": 5000.0}, "last_t": {"millis": 100.0}})
+    (row,) = inserts(tr.feed(200, "millis", 30.0))
+    assert row["t"] == 170
+    assert tr.feed(201, "millis", 31.0) == []
 
 
 def test_states_requests_and_firmware():
@@ -132,3 +176,39 @@ def test_module_ids():
     # A module swapped.
     (row,) = inserts(tr.feed(20, "module_ids", "024 · pack type 35"))
     assert (row["old"], row["new"], row["time_known"]) == ("023 · pack type 34", "024 · pack type 35", True)
+
+
+def test_restarts_from_misread_uptimes_are_removed_once(tmp_path):
+    """0.17.1 and earlier made a restart of every garbage uptime reading."""
+    path = tmp_path / "cellkeeper.db"
+    store = Store(path)
+    store.open()
+    store._db.execute("DELETE FROM meta")  # as 0.17.1 left it
+    rows = [
+        (1, "bms", 1000, 500),  # the first one: nothing to fit in
+        (2, "bms", 5000, 3990),  # fits in the 4000 s since the boot before started
+        (3, "bms", 5000, 9.2e15),  # the same boot again, uptime before far too high
+        (4, "bms", 5000, 4100),  # the same start: two boots can't start together
+        (5, "bms", 6000, 3000),  # more uptime than the 1000 s since
+        (6, "bms", 9000, 3995),  # fits once the ones above are gone
+        (7, "hmi", 1000, 4e17),  # a first one that can't be real
+        (8, "hmi", 2000, None),
+    ]
+    for row_id, key, t, before in rows:
+        data = json.dumps({"uptime_before": before}) if before is not None else None
+        store._db.execute(
+            "INSERT INTO records (id, prefix, t, kind, key, time_known, data) VALUES (?, 'ck0', ?, 'restart', ?, 1, ?)",
+            (row_id, t, key, data),
+        )
+    store.close()
+    store.open()
+    assert [r[0] for r in store._db.execute("SELECT id FROM records ORDER BY id")] == [1, 2, 6, 8]
+    # Once only: restarts logged from now on are left alone.
+    store._db.execute(
+        "INSERT INTO records (id, prefix, t, kind, key, time_known, data) VALUES (9, 'ck0', 9001, 'restart', 'bms', 1, ?)",
+        (json.dumps({"uptime_before": 9e15}),),
+    )
+    store.close()
+    store.open()
+    assert store._db.execute("SELECT COUNT(*) FROM records WHERE id = 9").fetchone()[0] == 1
+    store.close()

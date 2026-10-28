@@ -137,10 +137,13 @@ async def test_records_from_history_and_live(
     await settle(hass)
     assert (await client.receive_json())["event"]["records"][0]["data"] == {"by": "hmi"}
 
-    # The BMS restarts: it's been up 20 s when the HMI reads it again.
+    # The BMS restarts: it's been up 20 s when the HMI reads it again, and the next reading agrees.
     freezer.tick(timedelta(seconds=10))
     now = dt_util.utcnow().timestamp()
     put(hass, "sensor.ck0_millis", "20")
+    await settle(hass)
+    freezer.tick(timedelta(seconds=1))
+    put(hass, "sensor.ck0_millis", "21")
     await settle(hass)
     (row,) = (await client.receive_json())["event"]["records"]
     assert (row["kind"], row["key"]) == ("restart", "bms") and row["t"] == pytest.approx(now - 20, abs=0.01)

@@ -24,6 +24,8 @@ FAILED = ("PRE_FAIL", "TST_FAIL")
 
 # An uptime that drops by more than this is a restart (less is a reading's jitter).
 RESTART_DROP_S = 5
+# How far an uptime's clock may run from Home Assistant's, as a share of the time between readings.
+UPTIME_DRIFT = 0.001
 # The BMS's millis is 32 bits: it wraps after 49.7 days, which isn't a restart.
 MILLIS_WRAP_S = 2**32 / 1000
 
@@ -52,6 +54,10 @@ class RecordTracker:
         self.gap: dict[str, float] = {}  # source -> unavailable since
         self.balance_id: int | None = None  # the balance charge in progress
         self.balance_start: float | None = None
+        # Uptime sources -> the boot they're in, {"start", "up"} (its start and last reading), and
+        # a later start seen once, waiting for the next reading to say it's a restart.
+        self.boot: dict[str, dict[str, float]] = {}
+        self.restarting: dict[str, dict[str, float]] = {}
         self.ops: list[RecordOp] = []
 
     # ---- saving and restoring ----
@@ -63,6 +69,8 @@ class RecordTracker:
             "gap": self.gap,
             "balance_id": self.balance_id,
             "balance_start": self.balance_start,
+            "boot": self.boot,
+            "restarting": self.restarting,
         }
 
     def restore(self, s: dict[str, Any]) -> None:
@@ -71,6 +79,8 @@ class RecordTracker:
         self.gap = dict(s.get("gap") or {})
         self.balance_id = s.get("balance_id")
         self.balance_start = s.get("balance_start")
+        self.boot = {k: dict(v) for k, v in (s.get("boot") or {}).items()}
+        self.restarting = {k: dict(v) for k, v in (s.get("restarting") or {}).items()}
 
     def mark_gap(self, t: float) -> None:
         """Home Assistant was down after t: every change seen next happened at some time after it."""
@@ -99,7 +109,9 @@ class RecordTracker:
         if source.startswith("setting:"):
             self._setting(t, source[len("setting:"):], prev, state, after, by)
         elif source in ("millis", "uptime_hmi"):
-            self._uptime(t, "bms" if source == "millis" else "hmi", prev, state)
+            state = float(state)
+            if not self._uptime(t, source, prev, state):
+                return self.ops
         elif source == "contactor":
             self._contactor(t, prev, state, after)
         elif source in ("system_state", "system_request"):
@@ -139,14 +151,46 @@ class RecordTracker:
         elif state in FAILED:
             self._insert(t, "contactor", "failed", prev, state, after, needs=needs)
 
-    def _uptime(self, t: float, key: str, prev: float | None, up: Any) -> None:
-        up = float(up)
-        if prev is None or up >= prev - RESTART_DROP_S:
+    def _uptime(self, t: float, source: str, prev: float | None, up: float) -> bool:
+        """A restart is a later start (t - up) that the next reading confirms. One reading on its
+        own may be a misread: the HMI has published garbage uptimes, once in a while, both far too
+        high and too low. False: the reading is skipped."""
+        key = "bms" if source == "millis" else "hmi"
+        start = t - up
+        boot = self.boot.get(source)
+        if boot is None:
+            # The first reading, or the first since this check was added: then the old test.
+            if prev is not None and up < prev - RESTART_DROP_S:
+                self._restart(start, key, prev, up)
+            self.boot[source] = {"start": start, "up": up}
+            return True
+        if self._same_boot(boot, t, start):
+            self.boot[source] = {"start": start, "up": up}
+            self.restarting.pop(source, None)
+            return True
+        if start < boot["start"]:
+            # It claims more uptime than time has passed.
+            return False
+        # It started later: a restart, or a reading too low.
+        new = self.restarting.get(source)
+        if new is None or not self._same_boot(new, t, start):
+            self.restarting[source] = {"start": start, "up": up}
+            return False
+        self.restarting.pop(source)
+        self._restart(new["start"], key, boot["up"], up)
+        self.boot[source] = {"start": start, "up": up}
+        return True
+
+    @staticmethod
+    def _same_boot(boot: dict[str, float], t: float, start: float) -> bool:
+        since = max(0.0, t - (boot["start"] + boot["up"]))
+        return abs(start - boot["start"]) <= RESTART_DROP_S + since * UPTIME_DRIFT
+
+    def _restart(self, start: float, key: str, up_before: float, up: float) -> None:
+        if key == "bms" and up_before > MILLIS_WRAP_S - 3600 and up < 3600:
             return
-        if key == "bms" and prev > MILLIS_WRAP_S - 3600 and up < 3600:
-            return
-        # It started `up` seconds before this reading: the time is exact even after a gap.
-        self._insert(t - up, "restart", key, None, None, None, data={"uptime_before": round(prev)})
+        # It started `up` seconds before the reading: the time is exact even after a gap.
+        self._insert(start, "restart", key, None, None, None, data={"uptime_before": round(up_before)})
 
     def _setting(self, t: float, key: str, prev: Any, state: Any, after: float | None, by: dict[str, Any] | None) -> None:
         new, old = _number(state), _number(prev)
