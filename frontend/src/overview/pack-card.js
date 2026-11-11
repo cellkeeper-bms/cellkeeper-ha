@@ -55,6 +55,8 @@ class CellKeeperPackCard extends PackCard {
   watched() {
     return [
       "soc", "current", "power_w", "pack_internal_voltage", "pack_output_voltage", "capacity", "cell_count",
+      "inverter_can_soc", "inverter_can_voltage_limit_max", "inverter_can_voltage_limit_min",
+      "inverter_can_capacity_full", "inverter_can_capacity_remaining",
       "system_state_text", "contactor_state_text", "balance_charge_status", "current_limit_effective_charge",
       "current_limit_effective_discharge", ...CHARGE_LIMITS.map(([k]) => k), ...DISCHARGE_LIMITS.map(([k]) => k),
       ...this._eventIds(),
@@ -142,7 +144,7 @@ class CellKeeperPackCard extends PackCard {
             ${this._gauge(soc, mode, capacity, voltage)} ${this._flow(mode, current, power, voltage, soc, capacity)}
             ${this._chart()}
           </div>
-          ${this._footer(events)}
+          ${this._sent()} ${this._footer(events)}
         </div>
       </ha-card>
     `;
@@ -291,23 +293,89 @@ class CellKeeperPackCard extends PackCard {
           <span class="hero-num" style=${mode === "idle" ? "color:var(--ck-muted)" : ""}>${pv}<span class="unit">${pu}</span></span>
           ${eta ? html`<span class="eta">${eta}</span>` : ""}
         </div>
+        ${this._path(mode, color)}
         <div class="readings">
-          <div class="clickable" @click=${() => this.moreInfo("current")}>
-            <div class="label">Current</div>
-            <div class="mid num">${fmt(this.hass, current, Math.abs(current ?? 0) < 10 ? 2 : 1)}<span class="unit">A</span></div>
-          </div>
           <div class="clickable" @click=${() => this.moreInfo("pack_internal_voltage")}>
             <div class="label">Pack</div>
             <div class="mid num">${fmt(this.hass, voltage, 1)}<span class="unit">V</span></div>
           </div>
-          ${out !== undefined
-            ? html`<div class="clickable" @click=${() => this.moreInfo("pack_output_voltage")}>
-                <div class="label">Output</div>
-                <div class="mid num">${fmt(this.hass, out, 1)}<span class="unit">V</span></div>
-              </div>`
-            : ""}
+          <div class="clickable" @click=${() => this.moreInfo("current")}>
+            <div class="label">Current</div>
+            <div class="mid num">${fmt(this.hass, current, Math.abs(current ?? 0) < 10 ? 2 : 1)}<span class="unit">A</span></div>
+          </div>
+          <div class="clickable" @click=${() => this.moreInfo("pack_output_voltage")}>
+            <div class="label">Inverter side</div>
+            <div class="mid num">${fmt(this.hass, out, 1)}<span class="unit">V</span></div>
+          </div>
         </div>
         ${charge || discharge ? this._limits(current, charge, discharge) : ""}
+      </div>
+    `;
+  }
+
+  // The power path, as the display's Home page draws it: the pack, the contactors and the
+  // inverter as the circuit they are. The line is live on the pack's side; the contactors are
+  // drawn closed, open or precharging; dashes run along the line the way the power flows.
+  _path(mode, color) {
+    const contactor = this.str("contactor_state_text");
+    const closed = contactor === "CLOSED";
+    const precharging = /^PRECH/.test(contactor ?? "");
+    const moving = mode === "charging" || mode === "discharging";
+    const live = moving ? color : "var(--ck-muted)";
+    const far = closed ? live : "var(--ck-track)";
+    const word =
+      contactor === undefined ? "" : closed ? "closed" : precharging ? "precharging" : contactor === "OPEN" ? "open" : contactor.toLowerCase().replace(/_/g, " ");
+    const ink = "var(--primary-text-color)";
+    return html`
+      <svg
+        class="path ${closed && moving ? mode : ""}"
+        viewBox="0 0 400 58"
+        role="img"
+        aria-label="Pack, contactors ${word}, inverter"
+        @click=${() => this.moreInfo("contactor_state_text")}
+      >
+        <rect x="2" y="15" width="40" height="26" rx="6" fill="none" stroke=${ink} stroke-width="2.5" />
+        <rect x="42" y="22" width="4" height="12" rx="1.5" fill=${ink} />
+        <line class="wire" x1="52" y1="28" x2="170" y2="28" stroke=${live} />
+        <line class="wire" x1="230" y1="28" x2="348" y2="28" stroke=${far} />
+        <line class="dash" x1="52" y1="28" x2="170" y2="28" stroke=${live} />
+        <line class="dash" x1="230" y1="28" x2="348" y2="28" stroke=${live} />
+        <line class="blade" x1="170" y1="28" x2=${closed ? 230 : 224} y2=${closed ? 28 : 10} stroke=${live} />
+        ${precharging ? svg`<path d="M170 28 Q200 50 230 28" fill="none" stroke=${live} stroke-width="2" stroke-dasharray="2 5" stroke-linecap="round" />` : ""}
+        <circle cx="170" cy="28" r="5.5" fill=${live} />
+        <circle cx="230" cy="28" r="5.5" fill=${closed ? live : "var(--ck-muted)"} />
+        <rect x="354" y="8" width="44" height="40" rx="8" fill="none" stroke=${ink} stroke-width="2.5" />
+        <path d="M363 28 q6.5 -15 13 0 t13 0" fill="none" stroke=${ink} stroke-width="2.5" stroke-linecap="round" />
+        <text x="200" y="54" text-anchor="middle">${word ? `contactors ${word}` : ""}</text>
+      </svg>
+    `;
+  }
+
+  // What the BMS tells the inverter over CAN: the state of charge, the two voltage targets and
+  // the capacity. The two current limits it sends are the bar above.
+  _sent() {
+    const soc = this.num("inverter_can_soc");
+    const max = this.numIn("inverter_can_voltage_limit_max", "V");
+    const min = this.numIn("inverter_can_voltage_limit_min", "V");
+    const full = this.numIn("inverter_can_capacity_full", "Ah");
+    const left = this.numIn("inverter_can_capacity_remaining", "Ah");
+    if ([soc, max, min, full, left].every((v) => v === undefined) && !this.has("inverter_can_soc")) return "";
+    const cell = (key, label, value, digits, unit) => html`
+      <div class="clickable" @click=${() => this.moreInfo(key)}>
+        <div class="label">${label}</div>
+        <div class="mid num">${fmt(this.hass, value, digits)}<span class="unit">${unit}</span></div>
+      </div>
+    `;
+    return html`
+      <div class="sent">
+        <div class="sent-title">
+          <div class="label">Sent to the inverter</div>
+          <div class="dim">over CAN</div>
+        </div>
+        ${cell("inverter_can_soc", "SOC", soc, 0, "%")} ${cell("inverter_can_voltage_limit_max", "Charge to", max, 1, "V")}
+        ${cell("inverter_can_voltage_limit_min", "Discharge to", min, 1, "V")}
+        ${cell("inverter_can_capacity_remaining", "Capacity left", left, 0, "Ah")}
+        ${cell("inverter_can_capacity_full", "Capacity full", full, 0, "Ah")}
       </div>
     `;
   }
@@ -641,14 +709,86 @@ class CellKeeperPackCard extends PackCard {
         font-size: 13px;
         color: var(--ck-muted);
       }
+      .path {
+        display: block;
+        width: 100%;
+        max-width: 520px;
+        margin: 2px 0 0;
+        cursor: pointer;
+      }
+      .path .wire,
+      .path .blade {
+        stroke-width: 3;
+        stroke-linecap: round;
+      }
+      .path .dash {
+        display: none;
+        stroke-width: 3;
+        stroke-linecap: round;
+        stroke-dasharray: 2 14;
+      }
+      .path.charging .wire,
+      .path.discharging .wire {
+        opacity: 0.4;
+      }
+      .path.charging .dash,
+      .path.discharging .dash {
+        display: inline;
+        stroke-width: 5;
+      }
+      /* Charging runs from the inverter to the pack, right to left */
+      .path.charging .dash {
+        animation: to-pack 0.9s linear infinite;
+      }
+      .path.discharging .dash {
+        animation: to-inverter 0.9s linear infinite;
+      }
+      @keyframes to-pack {
+        to { stroke-dashoffset: 16; }
+      }
+      @keyframes to-inverter {
+        to { stroke-dashoffset: -16; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .path .dash { animation: none !important; }
+      }
+      .path text {
+        font-size: 11px;
+        fill: var(--ck-muted);
+      }
+      /* Under the path: the pack's voltage at its end, the current in the middle, the inverter
+         side's voltage at the other end */
       .readings {
-        display: flex;
-        gap: 4px 22px;
-        flex-wrap: wrap;
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        max-width: 520px;
         margin: 0 -6px 12px;
       }
       .readings > div {
         padding: 2px 6px;
+      }
+      .readings > div:nth-child(2) {
+        text-align: center;
+      }
+      .readings > div:nth-child(3) {
+        text-align: right;
+      }
+      .sent {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        gap: 8px 30px;
+        margin-top: 14px;
+        padding-top: 12px;
+        border-top: 1px dashed var(--ck-line);
+      }
+      .sent-title {
+        margin-right: 6px;
+        align-self: center;
+      }
+      .sent-title .dim {
+        font-size: 12px;
+        color: var(--ck-muted);
       }
       .mid {
         font-size: 20px;
