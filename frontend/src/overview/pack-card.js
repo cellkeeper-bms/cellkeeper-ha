@@ -412,7 +412,7 @@ class CellKeeperPackCard extends PackCard {
       <div class="chart">
         <div class="chart-head">
           <span class="label">Last 24 h</span>
-          <span class="legend"><i style="background:var(--primary-color)"></i>SOC</span>
+          <span class="legend"><i style="background:var(--primary-text-color)"></i>SOC</span>
           ${hasPos ? html`<span class="legend"><i style="background:var(--ck-charge)"></i>Charge</span>` : ""}
           ${hasNeg ? html`<span class="legend"><i style="background:var(--ck-discharge)"></i>Discharge</span>` : ""}
           <span class="dim num scale">±${fmtPower(this.hass, maxP).join(" ")}</span>
@@ -431,7 +431,7 @@ class CellKeeperPackCard extends PackCard {
               ${[25, 50, 75].map((v) => svg`<line x1="0" x2=${W} y1=${sy(v)} y2=${sy(v)} class="grid-line"></line>`)}
               <path d=${area(1)} fill="var(--ck-charge)" fill-opacity="0.35"></path>
               <path d=${area(-1)} fill="var(--ck-discharge)" fill-opacity="0.35"></path>
-              <path d=${socLine} fill="none" stroke="var(--primary-color)" stroke-width="2" vector-effect="non-scaling-stroke"></path>
+              <path d=${socLine} fill="none" stroke="var(--primary-text-color)" stroke-width="2" vector-effect="non-scaling-stroke"></path>
               ${hover !== undefined ? svg`<line x1=${hover * W} x2=${hover * W} y1="0" y2=${H} class="cursor"></line>` : ""}
             `}
           </svg>
@@ -1057,8 +1057,8 @@ class CellKeeperPackCard extends PackCard {
         right: 4px;
         transform: translateY(-50%);
         font-size: 10px;
-        color: var(--primary-color);
-        opacity: 0.8;
+        color: var(--primary-text-color);
+        opacity: 0.6;
         pointer-events: none;
       }
       .loading {
