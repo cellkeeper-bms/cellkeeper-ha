@@ -80,6 +80,8 @@ class CellKeeperSystemCard extends PackCard {
       link: ["millis", "uptime_pico", "uptime_hmi", "system_state_text", "wifi_rssi"],
       bms: ["serial", "board_revision", "board_strap_counts", "uptime_pico", "system_state_text", "bms_firmware",
         "system_state", "system_request", "system_request_text", "contactor_state", "contactor_state_text",
+        "supervisor_state", "supervisor_reasons", "supervisor_cell_min", "supervisor_cell_max", "supervisor_cells_in_range",
+        "supervisor_scan_age",
         ...PACK_VOLTAGES.map((v) => v.key),
         ...RAILS.map((r) => r.key), ...BOARD_TEMPS.map((t) => t.key)],
       dashboard: [dashboardUpdate(this.hass)?.entity_id].filter(Boolean),
@@ -224,6 +226,7 @@ class CellKeeperSystemCard extends PackCard {
             : ""}
         </div>
         ${this._state()}
+        ${this._supervisor()}
         ${this._packVoltages()}
         ${rails.length
           ? html`<div class="label sect">Supply rails</div>
@@ -251,6 +254,41 @@ class CellKeeperSystemCard extends PackCard {
     const out = [row("State", "system_state_text", "system_state"), row("Contactors", "contactor_state_text", "contactor_state")];
     if (request || this.num("system_request") !== undefined) out.push(row("Request", "system_request_text", "system_request"));
     return out.some((r) => r) ? html`<div class="facts">${out}</div>` : "";
+  }
+
+  // The supervisor: the second chip, which reads the cells itself and enables the contactor
+  // drivers only while its own checks pass (HMI protocol 2). The words are the display's.
+  _supervisor() {
+    const state = this.str("supervisor_state");
+    if (state === undefined && !this.has("supervisor_state")) return "";
+    const says = {
+      Enabled: ["Allowing the contactors", "good"],
+      Disabled: ["Holding the contactors off", "warn"],
+      "Latched off": ["Latched off", "bad"],
+      "No answer": ["No answer", "bad"],
+    }[state] ?? [state ?? "–", "dim"];
+    const reasons = this.str("supervisor_reasons");
+    const lo = this.numIn("supervisor_cell_min", "V");
+    const hi = this.numIn("supervisor_cell_max", "V");
+    const inRange = this.num("supervisor_cells_in_range");
+    const age = this.numIn("supervisor_scan_age", "s");
+    return html`<div class="label sect">Supervisor</div>
+      <div class="facts">
+        <div class="clickable" @click=${() => this.moreInfo("supervisor_state")}>
+          <span>State</span><b class="${says[1]}">${says[0]}</b>
+        </div>
+        ${reasons && reasons !== "none"
+          ? html`<div class="clickable" @click=${() => this.moreInfo("supervisor_reasons")}><span>Because</span><b>${reasons}</b></div>`
+          : ""}
+        ${lo !== undefined || hi !== undefined
+          ? html`<div class="clickable" @click=${() => this.moreInfo("supervisor_cell_min")}>
+              <span>Its cells</span><b class="num">${fmt(this.hass, lo, 3)}–${fmt(this.hass, hi, 3)} V</b>
+              ${inRange !== undefined ? html`<i class="dim">${fmt(this.hass, inRange, 0)} in range</i>` : ""}
+              ${age !== undefined ? html`<i class="dim">read ${fmt(this.hass, age, age < 10 ? 1 : 0)} s ago</i>` : ""}
+            </div>`
+          : ""}
+      </div>
+      <div class="note">A second chip reads the cells itself and can cut the contactor drivers whatever the BMS says.</div>`;
   }
 
   // The pack voltages the BMS measures, in V whatever unit the sensors show.

@@ -61,6 +61,12 @@ function cells(states, count, mean, spreadMv) {
   return sum;
 }
 
+// A sensor the fixture pack does not have (it is older than HMI protocol 2)
+function add(states, key, value, unit) {
+  const id = `sensor.${PREFIX}_${key}`;
+  states[id] = { entity_id: id, state: String(value), attributes: { friendly_name: `${PREFIX} ${key}`, ...(unit && { unit_of_measurement: unit }) } };
+}
+
 function limits(states, charge, discharge) {
   const names = { hard: "hard", temperature: "temperature", cell_voltage: "cell_voltage", working: "working", delta: "delta" };
   for (const [dir, parts] of [["charge", charge], ["discharge", discharge]]) {
@@ -105,6 +111,20 @@ function healthy(states) {
   set(states, "contactor_voltage_positive", 0.1, "V");
   set(states, "contactor_voltage_negative", 0.1, "V");
   set(states, "balance_charge_status", "Floating, next Sunday 10:00");
+  add(states, "nameplate_capacity", 230, "Ah");
+  add(states, "learned_capacity", 221.4, "Ah");
+  add(states, "learned_capacity_uncertainty", 2.8, "Ah");
+  add(states, "learned_capacity_state_text", "GOOD");
+  add(states, "lifetime_charged", 41280, "Ah");
+  add(states, "lifetime_discharged", 40110, "Ah");
+  add(states, "lifetime_energy_charged", 15480, "kWh");
+  add(states, "lifetime_energy_discharged", 14720, "kWh");
+  add(states, "supervisor_state", "Enabled");
+  add(states, "supervisor_reasons", "none");
+  add(states, "supervisor_cell_min", 3.899, "V");
+  add(states, "supervisor_cell_max", 3.926, "V");
+  add(states, "supervisor_cells_in_range", 96);
+  add(states, "supervisor_scan_age", 0.4, "s");
   for (const id of Object.keys(states)) {
     if (id.includes("_event_")) states[id] = { ...states[id], state: "INACTIVE" };
   }
@@ -162,11 +182,9 @@ const SCENARIOS = {
       flow(states, healthy(states), 0);
       set(states, "contactor_state_text", "OPEN");
       set(states, "pack_output_voltage", 0.4, "V");
-      // Protocol 2 sensors the fixture pack does not have yet
-      for (const [key, value] of [["supervisor_state", "Disabled"], ["supervisor_reasons", "NO_SCAN, SETTLING"]]) {
-        const id = `sensor.${PREFIX}_${key}`;
-        states[id] = { entity_id: id, state: value, attributes: { friendly_name: `${PREFIX} ${key}` } };
-      }
+      add(states, "supervisor_state", "Disabled");
+      add(states, "supervisor_reasons", "NO_SCAN, SETTLING");
+      add(states, "supervisor_scan_age", 14, "s");
       event(states, "_supervisor_not_enabled", "WARNING (1)");
       event(states, "_closing_failed", "INACTIVE (3)");
     },

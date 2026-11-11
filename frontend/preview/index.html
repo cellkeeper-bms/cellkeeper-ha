@@ -7,7 +7,7 @@
     http://localhost:8377/preview/?view=overview&scenario=charging
 
   view: overview (the Overview's cards), pack (the pack card alone), faults (the Event view's
-        "How a fault happens" card)
+        "How a fault happens" card), system (the System view's BMS card)
   scenario: charging, discharging, idle, precharge, held, fault
   width: the page's width in px (default 1180), to try the cards' narrower layouts
 -->
@@ -108,6 +108,8 @@
         page.append(card("pack-card"));
       } else if (view === "faults") {
         page.append(card("fault-logic-card"));
+      } else if (view === "system") {
+        page.append(group("row", card("system-card", { kind: "bms" })));
       } else {
         page.append(
           card("pack-card"),
@@ -118,7 +120,8 @@
               "two",
               card("stat-card", { kind: "temperature" }),
               card("stat-card", { kind: "energy" }),
-              card("stat-card", { kind: "isolation" })
+              card("stat-card", { kind: "isolation" }),
+              card("stat-card", { kind: "capacity" })
             )
           )
         );
