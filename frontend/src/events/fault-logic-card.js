@@ -1,8 +1,7 @@
 import { html, css, nothing } from "lit";
 import { PackCard, baseStyles, fmt } from "../overview/base.js";
 import { define } from "../context.js";
-import { EVENT_CATALOG } from "./catalog.js";
-import { LEVEL_COLORS, packEvents } from "./model.js";
+import { LEVEL_COLORS, eventCatalog, packEvents } from "./model.js";
 
 // custom:cellkeeper-fault-logic-card
 //   prefix: ck0
@@ -41,8 +40,15 @@ const STEPS = [
   },
 ];
 
-const KEY_OF_TYPE = Object.fromEntries(Object.entries(EVENT_CATALOG).map(([key, e]) => [e.type, key]));
-const STEP_KEYS = new Set(STEPS.flatMap((s) => s.events.map((type) => KEY_OF_TYPE[type])));
+// For a catalogue: the sensor key of each firmware event name, and the keys the steps list
+const INDEX = new WeakMap();
+function indexOf(catalog) {
+  if (!INDEX.has(catalog)) {
+    const keyOfType = Object.fromEntries(Object.entries(catalog).map(([key, e]) => [e.type, key]));
+    INDEX.set(catalog, { keyOfType, stepKeys: new Set(STEPS.flatMap((s) => s.events.map((type) => keyOfType[type]))) });
+  }
+  return INDEX.get(catalog);
+}
 
 // When an event of the catalogue turns fatal, in a few words: "fatal", "at once", "after 2 s",
 // "after 20 times"; "" for one that never does.
@@ -105,6 +111,8 @@ class CellKeeperFaultLogicCard extends PackCard {
   render() {
     if (!this.hass || !this._config) return nothing;
     const events = packEvents(this.hass, this.prefix);
+    const catalog = eventCatalog(this.hass, this.prefix);
+    const { keyOfType, stepKeys } = indexOf(catalog);
     const byKey = Object.fromEntries(events.map((e) => [e.key, e]));
     const active = (level) => events.filter((e) => e.active && e.level === level);
     const warnings = active("WARNING"), criticals = active("CRITICAL"), fatals = active("FATAL");
@@ -115,10 +123,10 @@ class CellKeeperFaultLogicCard extends PackCard {
 
     // The events that belong to no step: they can strike wherever the pack is. Only those
     // that can end in FAULT are listed; the rest only inform.
-    const anyTime = events.filter((e) => !STEP_KEYS.has(e.key) && fatalAfter(EVENT_CATALOG[e.key]));
+    const anyTime = events.filter((e) => !stepKeys.has(e.key) && fatalAfter(catalog[e.key]));
     const areas = [...new Set(anyTime.map((e) => e.area))];
     const anyActive = anyTime.filter((e) => e.active).length;
-    const informing = events.filter((e) => !STEP_KEYS.has(e.key) && !fatalAfter(EVENT_CATALOG[e.key])).length;
+    const informing = events.filter((e) => !stepKeys.has(e.key) && !fatalAfter(catalog[e.key])).length;
 
     return html`
       <ha-card>
@@ -150,7 +158,7 @@ class CellKeeperFaultLogicCard extends PackCard {
 
           <div class="label">2 · From start to closed contactors</div>
           <div class="steps">
-            ${STEPS.map((step, i) => this._step(step, i, pos, byKey))}
+            ${STEPS.map((step, i) => this._step(step, i, pos, byKey, catalog, keyOfType))}
           </div>
 
           ${anyTime.length
@@ -167,7 +175,7 @@ class CellKeeperFaultLogicCard extends PackCard {
                     (area) => html`
                       <div class="area">
                         <div class="area-name">${area}</div>
-                        <div class="chips">${anyTime.filter((e) => e.area === area).map((e) => this._chip(e.key, e))}</div>
+                        <div class="chips">${anyTime.filter((e) => e.area === area).map((e) => this._chip(catalog, e.key, e))}</div>
                       </div>
                     `
                   )}
@@ -197,7 +205,7 @@ class CellKeeperFaultLogicCard extends PackCard {
     `;
   }
 
-  _step(step, i, pos, byKey) {
+  _step(step, i, pos, byKey, catalog, keyOfType) {
     const here = i === pos.at, done = pos.at > i;
     return html`
       <div class="step ${here ? (pos.held ? "here held" : "here") : done ? "done" : ""}">
@@ -206,7 +214,7 @@ class CellKeeperFaultLogicCard extends PackCard {
           <div class="note">${step.what}</div>
         </div>
         <div class="chips">
-          ${step.events.map((type) => this._chip(KEY_OF_TYPE[type], byKey[KEY_OF_TYPE[type]]))}
+          ${step.events.map((type) => this._chip(catalog, keyOfType[type], byKey[keyOfType[type]]))}
           ${step.note ? html`<div class="stepnote">${step.note}</div>` : nothing}
         </div>
       </div>
@@ -215,8 +223,8 @@ class CellKeeperFaultLogicCard extends PackCard {
 
   // One event: its level's colour, its name, when it turns fatal; lit while it is active, with
   // a count if it happened earlier. `e` is the pack's sensor for it, if the pack has one.
-  _chip(key, e) {
-    const info = EVENT_CATALOG[key];
+  _chip(catalog, key, e) {
+    const info = catalog[key];
     if (!info) return nothing;
     const level = e?.active ? e.level : info.level;
     const after = fatalAfter(info) || (info.level === "INFO" ? "" : "never fatal");

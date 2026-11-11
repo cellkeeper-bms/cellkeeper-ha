@@ -1,4 +1,5 @@
 import { EVENT_CATALOG } from "./catalog.js";
+import { EVENT_CATALOG_2 } from "./catalog2.js";
 
 // Reading the HMI's event sensors: sensor.<prefix>_event_<label>_<name>, state "INACTIVE",
 // "INACTIVE (n)" (happened n times since the BMS booted, not active now) or "<LEVEL> (n)".
@@ -12,6 +13,15 @@ export const LEVEL_ICONS = {
   WARNING: "mdi:alert-circle-outline",
   INFO: "mdi:information-outline",
 };
+
+// The event list of the pack's firmware. HMI protocol 2 (firmware based on jonny5532/bmstest1
+// master) has its own: other events, levels and delays. The pack's "BMS Protocol" sensor says
+// which it speaks; while that is unknown (HMI offline), an event sensor only protocol 2 has.
+export function eventCatalog(hass, prefix) {
+  const protocol = parseInt(hass?.states[`sensor.${prefix}_bms_protocol`]?.state, 10);
+  const two = Number.isFinite(protocol) ? protocol >= 2 : `sensor.${prefix}_event_warning_cell_missing` in (hass?.states ?? {});
+  return two ? EVENT_CATALOG_2 : EVENT_CATALOG;
+}
 
 export function parseState(state) {
   // HMI firmware with the event data adds the latest occurrence's, " d=<hex>", after the count.
@@ -30,13 +40,14 @@ export const levelName = (l) => l[0] + l.slice(1).toLowerCase();
 // The pack's event sensors with what the catalogue knows about each, in firmware order.
 export function packEvents(hass, prefix) {
   const start = `sensor.${prefix}_event_`;
+  const catalog = eventCatalog(hass, prefix);
   const out = [];
   for (const id of Object.keys(hass.states)) {
     if (!id.startsWith(start)) continue;
     const key = id.slice(start.length);
     const m = /^(info|warning|critical|fatal)_/.exec(key);
     if (!m) continue;
-    const info = EVENT_CATALOG[key];
+    const info = catalog[key];
     const st = hass.states[id];
     out.push({
       id,

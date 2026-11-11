@@ -26,7 +26,8 @@ card renamed (`cellkeeper-dev-…`) and its own strategy, `custom:cellkeeper-dev
 That dashboard always runs the test copy, and the others never do. The test copy keeps its own
 remembered view settings.
 
-`python tools/make_events.py` rebuilds `src/events/catalog.js` from the firmware's event table, and
+`python tools/make_events.py` rebuilds `src/events/catalog.js` from the firmware's event table
+(`--protocol 2 <bms_core.yaml> <events.h>` writes `catalog2.js`, the list of HMI protocol 2), and
 `python tools/make_icons.py` rebuilds `src/icons.js` from the CellKeeper logo; both read the other
 CellKeeper repositories beside this one.
 `python tools/make_brand.py` (needs Pillow) draws the integration's icon and logo, in
