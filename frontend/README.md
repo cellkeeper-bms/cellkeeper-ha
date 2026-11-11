@@ -8,6 +8,8 @@ its options.
 npm install
 npm run build      # writes ../custom_components/cellkeeper/frontend/cellkeeper-dashboard.js
 npm run build:dev  # writes dist-dev/cellkeeper-dashboard-dev.js, the test copy
+python -m http.server 8377   # then http://localhost:8377/preview/ shows the cards without Home
+                             # Assistant, fed by made-up packs (see preview/index.html)
 npm run check      # generates the dashboard from test/fixtures/ck0.json and checks it
 ```
 
