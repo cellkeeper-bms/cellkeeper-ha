@@ -140,11 +140,12 @@ class CellKeeperPackCard extends PackCard {
         ${severe.map((e) => this._banner(e))}
         <div class="wrap">
           ${this._header(events)}
-          <div class="grid">
-            ${this._gauge(soc, mode, capacity, voltage)} ${this._flow(mode, current, power, voltage, soc, capacity)}
+          ${this._hero(soc, mode, current, power, voltage, capacity)}
+          <div class="lower">
+            <div class="lower-left">${this._allowed(current)} ${this._sent()}</div>
             ${this._chart()}
           </div>
-          ${this._sent()} ${this._footer(events)}
+          ${this._footer(events)}
         </div>
       </ha-card>
     `;
@@ -212,50 +213,83 @@ class CellKeeperPackCard extends PackCard {
     `;
   }
 
-  _gauge(soc, mode, capacity, voltage) {
-    const [cx, cy, cw, ch] = BATTERY.cavityBox;
-    const level = Math.max(0, Math.min(100, soc ?? 0)) / 100;
-    const fillY = cy + ch * (1 - level);
-    // In the charge colour while charging, the discharge colour while discharging; idle, by how full it is.
-    const color = { charging: "var(--ck-charge)", discharging: "var(--ck-discharge)" }[mode] ?? socColor(soc);
+  // The hero, drawn as the display's Home page draws it: the pack as a battery filled to its
+  // state of charge, the contactors, and the inverter, joined by the line the power runs
+  // along, with the power on that line. It is laid out as a grid of three columns (pack, the
+  // line, inverter) whose widths follow the card's, so it holds on a phone and on a desktop.
+  _hero(soc, mode, current, power, voltage, capacity) {
+    const out = this.numIn("pack_output_voltage", "V");
+    const contactor = this.str("contactor_state_text");
+    const closed = contactor === "CLOSED";
+    const precharging = /^PRECH/.test(contactor ?? "");
+    const fault = this.str("system_state_text") === "FAULT";
+    const moving = mode === "charging" || mode === "discharging";
+    const flow = { charging: "var(--ck-charge)", discharging: "var(--ck-discharge)" }[mode] ?? "var(--ck-muted)";
+    const label = fault ? "Fault" : { charging: "Charging", discharging: "Discharging", idle: "Idle", unknown: "–" }[mode];
+    const [pv, pu] = fmtPower(this.hass, power === undefined ? undefined : Math.abs(power));
+    let eta = "";
+    if (capacity && soc !== undefined && current !== undefined && Math.abs(current) >= IDLE_A) {
+      const hours = mode === "charging" ? (capacity * (100 - soc)) / 100 / current : (capacity * soc) / 100 / -current;
+      if (hours < 96) eta = `${mode === "charging" ? "Full" : "Empty"} in ≈ ${fmtDuration(hours)}`;
+    }
     const stored = soc !== undefined && capacity && voltage ? (capacity * soc * voltage) / 100 / 1000 : undefined;
     const ah = soc !== undefined && capacity ? (capacity * soc) / 100 : undefined;
     const hourAgo = this._valueAgo(this._day?.soc, 3600e3);
     const delta = soc !== undefined && hourAgo !== undefined ? soc - hourAgo : undefined;
-    const arrow = mode === "charging" || mode === "discharging";
+    const level = Math.max(0, Math.min(100, soc ?? 0));
+    const word =
+      contactor === undefined ? "" : closed ? "closed" : precharging ? "precharging" : contactor === "OPEN" ? "open" : contactor.toLowerCase().replace(/_/g, " ");
+    const socText = html`<b>${soc === undefined ? "–" : fmt(this.hass, soc, 0)}<span>%</span></b>`;
+    const amps =
+      current === undefined ? "" : `${current > 0 ? "+" : ""}${fmt(this.hass, current, Math.abs(current) < 10 ? 2 : 1)} A`;
     return html`
-      <div class="gauge clickable" @click=${() => this.moreInfo("soc")}>
-        <svg viewBox=${BATTERY.viewBox} class="battery" aria-hidden="true">
-          <defs>
-            <clipPath id="cavity"><path d=${BATTERY.cavity}></path></clipPath>
-            <linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stop-color=${color} stop-opacity="0.75"></stop>
-              <stop offset="1" stop-color=${color} stop-opacity="1"></stop>
-            </linearGradient>
-          </defs>
-          ${svg`
-            <rect x=${cx} y=${cy} width=${cw} height=${ch} fill="var(--ck-track)" clip-path="url(#cavity)"></rect>
-            <rect class="level" x=${cx} y=${fillY} width=${cw} height=${ch * level + 1} fill="url(#fill)" clip-path="url(#cavity)"></rect>
-            <path d=${BATTERY.outline} fill="var(--primary-text-color)" fill-rule="evenodd"></path>
-            ${arrow
-              ? svg`<g class="arrow ${mode}" style="transform-origin:${cx + cw / 2}px ${cy + ch / 2}px">
-                  <path d=${BATTERY.arrow} transform="translate(0 ${cy + ch / 2 - 35.4})"></path></g>`
-              : ""}
-          `}
-        </svg>
-        <div class="soc">
-          <div class="label">State of charge</div>
-          <div class="hero-num" style="color:${color}">${soc === undefined ? "–" : fmt(this.hass, soc, soc >= 99.95 ? 0 : 1)}<span class="unit">%</span></div>
-          ${stored !== undefined
-            ? html`<div class="sub num">≈ ${fmt(this.hass, stored, 1)} kWh · ${fmt(this.hass, ah, 0)} Ah</div>`
-            : ""}
+      <div
+        class="hero ${closed && moving ? mode : ""} ${soc === undefined ? "unknown" : ""}"
+        style="--flow:${flow};--far:${closed ? flow : "var(--ck-track)"};--level:${level}%;--soc:${socColor(soc)}"
+      >
+        <div class="end pack-end clickable" @click=${() => this.moreInfo("pack_internal_voltage")}>
+          <span class="label">Pack</span><span class="num">${fmt(this.hass, voltage, 1)} V</span>
+        </div>
+        <div class="state label" style="color:${fault ? "var(--ck-bad)" : flow}">${label}</div>
+        <div class="end inv-end clickable" @click=${() => this.moreInfo("pack_output_voltage")}>
+          <span class="label">Inverter</span><span class="num">${fmt(this.hass, out, 1)} V</span>
+        </div>
+
+        <div class="batt clickable" @click=${() => this.moreInfo("soc")}>
+          <div class="batt-body">
+            <div class="batt-text">${socText}</div>
+            <div class="batt-fill"><div class="batt-text">${socText}</div></div>
+          </div>
+        </div>
+        <div class="power clickable" @click=${() => this.moreInfo("power_w")}>
+          <span class="hero-num" style=${moving ? "" : "color:var(--ck-muted)"}>${pv}<span class="unit">${pu}</span></span>
+        </div>
+        <div class="wire clickable" @click=${() => this.moreInfo("contactor_state_text")}>
+          <div class="seg"></div>
+          <svg class="switch" viewBox="0 0 76 44" role="img" aria-label="Contactors ${word}">
+            <line x1="10" y1="22" x2=${closed ? 66 : 62} y2=${closed ? 22 : 7} />
+            ${precharging ? svg`<path d="M10 22 Q38 46 66 22" />` : ""}
+            <circle cx="10" cy="22" r="7" />
+            <circle class="far" cx="66" cy="22" r="7" />
+          </svg>
+          <div class="seg far"></div>
+        </div>
+        <div class="under">
+          <div class="contactors">${word ? `Contactors ${word}` : ""}</div>
+          <div class="amps num">${amps}${amps && eta ? " · " : ""}${eta}</div>
+        </div>
+        <div class="inv">
+          <svg viewBox="0 0 60 60" aria-hidden="true"><path d="M12 30 q9 -22 18 0 t18 0" /></svg>
+        </div>
+
+        <div class="stored num">
+          ${stored !== undefined ? html`<span>≈ ${fmt(this.hass, stored, 1)} kWh · ${fmt(this.hass, ah, 0)} Ah</span>` : ""}
           ${delta !== undefined
-            ? html`<div class="sub num">
-                <ha-icon icon=${delta >= 0.05 ? "mdi:trending-up" : delta <= -0.05 ? "mdi:trending-down" : "mdi:trending-neutral"}></ha-icon>
-                ${Math.abs(delta) < 0.05
+            ? html`<span class="dim"
+                >${Math.abs(delta) < 0.05
                   ? "Unchanged over the last hour"
-                  : html`${delta > 0 ? "+" : "−"}${fmt(this.hass, Math.abs(delta), 1)} % in the last hour`}
-              </div>`
+                  : html`${delta > 0 ? "+" : "−"}${fmt(this.hass, Math.abs(delta), 1)} % in the last hour`}</span
+              >`
             : ""}
         </div>
       </div>
@@ -271,84 +305,11 @@ class CellKeeperPackCard extends PackCard {
     return best;
   }
 
-  _flow(mode, current, power, voltage, soc, capacity) {
+  // The current between the limits it may run in, with what sets each limit
+  _allowed(current) {
     const charge = this._limit("current_limit_effective_charge", CHARGE_LIMITS);
     const discharge = this._limit("current_limit_effective_discharge", DISCHARGE_LIMITS);
-    const out = this.numIn("pack_output_voltage", "V");
-    const [pv, pu] = fmtPower(this.hass, power === undefined ? undefined : Math.abs(power));
-    const label = { charging: "Charging", discharging: "Discharging", idle: "Idle", unknown: "–" }[mode];
-    const color = { charging: "var(--ck-charge)", discharging: "var(--ck-discharge)" }[mode] ?? "var(--ck-muted)";
-    let eta = "";
-    if (capacity && soc !== undefined && current !== undefined && Math.abs(current) >= IDLE_A) {
-      const hours = mode === "charging" ? (capacity * (100 - soc)) / 100 / current : (capacity * soc) / 100 / -current;
-      if (hours < 96) eta = `${mode === "charging" ? "Full" : "Empty"} in ≈ ${fmtDuration(hours)}`;
-    }
-    return html`
-      <div class="flow">
-        <div class="label" style="color:${color}">
-          <ha-icon icon=${mode === "charging" ? "mdi:battery-arrow-down" : mode === "discharging" ? "mdi:battery-arrow-up" : "mdi:battery"}></ha-icon>
-          ${label}
-        </div>
-        <div class="power clickable" @click=${() => this.moreInfo("power_w")}>
-          <span class="hero-num" style=${mode === "idle" ? "color:var(--ck-muted)" : ""}>${pv}<span class="unit">${pu}</span></span>
-          ${eta ? html`<span class="eta">${eta}</span>` : ""}
-        </div>
-        ${this._path(mode, color)}
-        <div class="readings">
-          <div class="clickable" @click=${() => this.moreInfo("pack_internal_voltage")}>
-            <div class="label">Pack</div>
-            <div class="mid num">${fmt(this.hass, voltage, 1)}<span class="unit">V</span></div>
-          </div>
-          <div class="clickable" @click=${() => this.moreInfo("current")}>
-            <div class="label">Current</div>
-            <div class="mid num">${fmt(this.hass, current, Math.abs(current ?? 0) < 10 ? 2 : 1)}<span class="unit">A</span></div>
-          </div>
-          <div class="clickable" @click=${() => this.moreInfo("pack_output_voltage")}>
-            <div class="label">Inverter side</div>
-            <div class="mid num">${fmt(this.hass, out, 1)}<span class="unit">V</span></div>
-          </div>
-        </div>
-        ${charge || discharge ? this._limits(current, charge, discharge) : ""}
-      </div>
-    `;
-  }
-
-  // The power path, as the display's Home page draws it: the pack, the contactors and the
-  // inverter as the circuit they are. The line is live on the pack's side; the contactors are
-  // drawn closed, open or precharging; dashes run along the line the way the power flows.
-  _path(mode, color) {
-    const contactor = this.str("contactor_state_text");
-    const closed = contactor === "CLOSED";
-    const precharging = /^PRECH/.test(contactor ?? "");
-    const moving = mode === "charging" || mode === "discharging";
-    const live = moving ? color : "var(--ck-muted)";
-    const far = closed ? live : "var(--ck-track)";
-    const word =
-      contactor === undefined ? "" : closed ? "closed" : precharging ? "precharging" : contactor === "OPEN" ? "open" : contactor.toLowerCase().replace(/_/g, " ");
-    const ink = "var(--primary-text-color)";
-    return html`
-      <svg
-        class="path ${closed && moving ? mode : ""}"
-        viewBox="0 0 400 58"
-        role="img"
-        aria-label="Pack, contactors ${word}, inverter"
-        @click=${() => this.moreInfo("contactor_state_text")}
-      >
-        <rect x="2" y="15" width="40" height="26" rx="6" fill="none" stroke=${ink} stroke-width="2.5" />
-        <rect x="42" y="22" width="4" height="12" rx="1.5" fill=${ink} />
-        <line class="wire" x1="52" y1="28" x2="170" y2="28" stroke=${live} />
-        <line class="wire" x1="230" y1="28" x2="348" y2="28" stroke=${far} />
-        <line class="dash" x1="52" y1="28" x2="170" y2="28" stroke=${live} />
-        <line class="dash" x1="230" y1="28" x2="348" y2="28" stroke=${live} />
-        <line class="blade" x1="170" y1="28" x2=${closed ? 230 : 224} y2=${closed ? 28 : 10} stroke=${live} />
-        ${precharging ? svg`<path d="M170 28 Q200 50 230 28" fill="none" stroke=${live} stroke-width="2" stroke-dasharray="2 5" stroke-linecap="round" />` : ""}
-        <circle cx="170" cy="28" r="5.5" fill=${live} />
-        <circle cx="230" cy="28" r="5.5" fill=${closed ? live : "var(--ck-muted)"} />
-        <rect x="354" y="8" width="44" height="40" rx="8" fill="none" stroke=${ink} stroke-width="2.5" />
-        <path d="M363 28 q6.5 -15 13 0 t13 0" fill="none" stroke=${ink} stroke-width="2.5" stroke-linecap="round" />
-        <text x="200" y="54" text-anchor="middle">${word ? `contactors ${word}` : ""}</text>
-      </svg>
-    `;
+    return charge || discharge ? this._limits(current, charge, discharge) : "";
   }
 
   // What the BMS tells the inverter over CAN: the state of charge, the two voltage targets and
@@ -609,25 +570,277 @@ class CellKeeperPackCard extends PackCard {
         --mdc-icon-size: 14px;
       }
 
-      .grid {
+      /* The hero: pack, the line with the contactors, inverter. Rows: the ends' labels and the
+         state; the power; the line; what is under the line; what the pack holds. The battery
+         and the inverter span the three middle rows, and the rows above and below the line
+         are equally tall, so the line meets them at their middle. */
+      .hero {
         display: grid;
-        gap: 20px 28px;
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(104px, 27%) minmax(0, 1fr) minmax(56px, 15%);
+        grid-template-rows: auto 1fr auto 1fr auto;
+        row-gap: 2px;
+        align-items: center;
+        max-width: 1040px;
+        margin: 10px auto 16px;
+        --ink: var(--primary-text-color);
       }
-      @container (min-width: 560px) {
-        .grid {
-          grid-template-columns: minmax(230px, 0.8fr) 1fr;
-        }
-        .chart {
-          grid-column: 1 / -1;
+      .hero.unknown {
+        --ink: var(--ck-muted);
+      }
+      .end {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0 8px;
+        padding-bottom: 6px;
+        font-size: 15px;
+        font-weight: 500;
+      }
+      .pack-end {
+        grid-area: 1 / 1;
+        margin-right: 12px;
+      }
+      .inv-end {
+        grid-area: 1 / 3;
+        justify-self: end;
+        flex-wrap: nowrap;
+        white-space: nowrap;
+      }
+      .state {
+        grid-area: 1 / 2;
+        text-align: center;
+        font-size: 13px;
+        font-weight: 500;
+        padding-bottom: 6px;
+      }
+      .batt {
+        grid-area: 2 / 1 / 5 / 2;
+        padding-right: 12px;
+      }
+      .batt-body {
+        position: relative;
+        aspect-ratio: 5 / 3;
+        box-sizing: border-box;
+        border: 4px solid var(--ink);
+        border-radius: 16px;
+      }
+      /* The terminal */
+      .batt-body::after {
+        content: "";
+        position: absolute;
+        left: calc(100% + 3px);
+        top: 34%;
+        height: 32%;
+        width: 9px;
+        border-radius: 0 4px 4px 0;
+        background: var(--ink);
+      }
+      /* The number is drawn twice: light on the empty part and, cut off where the charge
+         ends, dark on the filled part */
+      .batt-text,
+      .batt-fill {
+        position: absolute;
+        inset: 5px;
+        border-radius: 9px;
+      }
+      .batt-text {
+        display: grid;
+        place-items: center;
+        font-size: clamp(30px, 9.5cqw, 76px);
+        font-weight: 500;
+        line-height: 1;
+        letter-spacing: -0.02em;
+        font-variant-numeric: tabular-nums;
+        color: var(--ink);
+      }
+      .batt-text b {
+        font-weight: 500;
+        white-space: nowrap;
+      }
+      .batt-text span {
+        font-size: 0.42em;
+        margin-left: 2px;
+      }
+      .batt-fill {
+        inset: 5px;
+        background: var(--soc);
+        clip-path: inset(0 calc(100% - var(--level)) 0 0 round 9px);
+        transition: clip-path 0.8s ease;
+      }
+      .batt-fill .batt-text {
+        inset: 0;
+        color: var(--card-background-color, #111);
+      }
+      .hero.unknown .batt-fill {
+        display: none;
+      }
+      .hero .power {
+        grid-area: 2 / 2;
+        align-self: end;
+        text-align: center;
+        margin: 0;
+        padding: 0 4px;
+        display: block;
+      }
+      .hero .hero-num {
+        font-size: clamp(34px, 10cqw, 76px);
+        font-weight: 500;
+      }
+      .wire {
+        grid-area: 3 / 2;
+        display: flex;
+        align-items: center;
+        min-width: 0;
+      }
+      /* A stretch of the line. Arrow heads run along it the way the power flows. */
+      .seg {
+        position: relative;
+        flex: 1;
+        height: 24px;
+        min-width: 0;
+      }
+      .seg::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 10px;
+        height: 4px;
+        border-radius: 2px;
+        background: var(--flow);
+      }
+      .seg.far::before {
+        background: var(--far);
+      }
+      .hero.charging .seg::after,
+      .hero.discharging .seg::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: var(--flow);
+        -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='24' viewBox='0 0 56 24'%3E%3Cpath d='M22 3 L32 12 L22 21' fill='none' stroke='black' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+          0 0 / 56px 24px repeat-x;
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='24' viewBox='0 0 56 24'%3E%3Cpath d='M22 3 L32 12 L22 21' fill='none' stroke='black' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+          0 0 / 56px 24px repeat-x;
+        animation: along 1.6s linear infinite;
+      }
+      /* Charging runs from the inverter to the pack: the same, mirrored */
+      .hero.charging .seg {
+        transform: scaleX(-1);
+      }
+      @keyframes along {
+        to {
+          -webkit-mask-position: 56px 0;
+          mask-position: 56px 0;
         }
       }
-      @container (min-width: 1000px) {
-        .grid {
-          grid-template-columns: minmax(250px, 0.75fr) 1fr 1.3fr;
+      @media (prefers-reduced-motion: reduce) {
+        .seg::after {
+          animation: none !important;
         }
-        .chart {
-          grid-column: auto;
+      }
+      .switch {
+        flex: none;
+        width: 76px;
+        height: 44px;
+        margin: 0 -4px;
+        overflow: visible;
+      }
+      .switch line,
+      .switch path {
+        fill: none;
+        stroke: var(--flow);
+        stroke-width: 4;
+        stroke-linecap: round;
+      }
+      .switch path {
+        stroke-width: 2.5;
+        stroke-dasharray: 2 6;
+      }
+      .switch circle {
+        fill: var(--flow);
+      }
+      .switch circle.far {
+        fill: var(--far);
+      }
+      .hero:not(.charging):not(.discharging) .switch circle.far {
+        fill: var(--ck-muted);
+      }
+      .under {
+        grid-area: 4 / 2;
+        align-self: start;
+        text-align: center;
+        padding: 0 4px;
+      }
+      .contactors {
+        font-size: 13px;
+        color: var(--ck-muted);
+      }
+      .amps {
+        margin-top: 6px;
+        font-size: clamp(14px, 2.6cqw, 17px);
+      }
+      .inv {
+        grid-area: 2 / 3 / 5 / 4;
+        aspect-ratio: 1;
+        box-sizing: border-box;
+        border: 4px solid var(--primary-text-color);
+        border-radius: 16px;
+        display: grid;
+        place-items: center;
+      }
+      .inv svg {
+        width: 72%;
+      }
+      .inv path {
+        fill: none;
+        stroke: var(--primary-text-color);
+        stroke-width: 4;
+        stroke-linecap: round;
+      }
+      .stored {
+        grid-area: 5 / 1 / 6 / 4;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px 18px;
+        padding-top: 8px;
+        font-size: 14px;
+      }
+      .stored .dim {
+        color: var(--ck-muted);
+      }
+
+      /* On a phone there is no room for the two ends' names beside the state: the voltages
+         stay, over the things they belong to */
+      @container (max-width: 500px) {
+        .end .label {
+          display: none;
+        }
+        .pack-end {
+          margin-right: 0;
+        }
+        .hero {
+          grid-template-columns: minmax(96px, 30%) minmax(0, 1fr) minmax(52px, 17%);
+        }
+      }
+
+      /* Under the hero: the current between its limits and what is sent to the inverter, with
+         the last 24 hours beside them when the card is wide enough */
+      .lower {
+        display: grid;
+        gap: 18px 32px;
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .lower-left {
+        display: grid;
+        gap: 14px;
+        align-content: start;
+        min-width: 0;
+      }
+      @container (min-width: 820px) {
+        .lower {
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
         }
       }
 
@@ -709,76 +922,11 @@ class CellKeeperPackCard extends PackCard {
         font-size: 13px;
         color: var(--ck-muted);
       }
-      .path {
-        display: block;
-        width: 100%;
-        max-width: 520px;
-        margin: 2px 0 0;
-        cursor: pointer;
-      }
-      .path .wire,
-      .path .blade {
-        stroke-width: 3;
-        stroke-linecap: round;
-      }
-      .path .dash {
-        display: none;
-        stroke-width: 3;
-        stroke-linecap: round;
-        stroke-dasharray: 2 14;
-      }
-      .path.charging .wire,
-      .path.discharging .wire {
-        opacity: 0.4;
-      }
-      .path.charging .dash,
-      .path.discharging .dash {
-        display: inline;
-        stroke-width: 5;
-      }
-      /* Charging runs from the inverter to the pack, right to left */
-      .path.charging .dash {
-        animation: to-pack 0.9s linear infinite;
-      }
-      .path.discharging .dash {
-        animation: to-inverter 0.9s linear infinite;
-      }
-      @keyframes to-pack {
-        to { stroke-dashoffset: 16; }
-      }
-      @keyframes to-inverter {
-        to { stroke-dashoffset: -16; }
-      }
-      @media (prefers-reduced-motion: reduce) {
-        .path .dash { animation: none !important; }
-      }
-      .path text {
-        font-size: 11px;
-        fill: var(--ck-muted);
-      }
-      /* Under the path: the pack's voltage at its end, the current in the middle, the inverter
-         side's voltage at the other end */
-      .readings {
-        display: grid;
-        grid-template-columns: 1fr 1fr 1fr;
-        max-width: 520px;
-        margin: 0 -6px 12px;
-      }
-      .readings > div {
-        padding: 2px 6px;
-      }
-      .readings > div:nth-child(2) {
-        text-align: center;
-      }
-      .readings > div:nth-child(3) {
-        text-align: right;
-      }
       .sent {
         display: flex;
         flex-wrap: wrap;
         align-items: flex-end;
         gap: 8px 30px;
-        margin-top: 14px;
         padding-top: 12px;
         border-top: 1px dashed var(--ck-line);
       }
