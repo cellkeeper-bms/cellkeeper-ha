@@ -146,6 +146,19 @@ check(
 const { parseState } = await import("../src/events/model.js");
 const { decodeEventData } = await import("../src/events/data.js");
 const { EVENT_CATALOG } = await import("../src/events/catalog.js");
+const { EVENT_CATALOG_2 } = await import("../src/events/catalog2.js");
+const { eventCatalog } = await import("../src/events/model.js");
+const protocolOf = (state) => eventCatalog({ states: { "sensor.ck0_bms_protocol": { state } } }, "ck0");
+check(
+  "event lists: a pack on HMI protocol 2 gets that firmware's levels, others the fork's",
+  protocolOf("2") === EVENT_CATALOG_2 &&
+    protocolOf("1") === EVENT_CATALOG &&
+    eventCatalog({ states: {} }, "ck0") === EVENT_CATALOG &&
+    eventCatalog({ states: { "sensor.ck0_event_warning_cell_missing": { state: "INACTIVE" } } }, "ck0") === EVENT_CATALOG_2 &&
+    EVENT_CATALOG_2.warning_fuse_voltage_drop_high.escalate?.ms === 2000 &&
+    EVENT_CATALOG_2.warning_cell_missing.type === "CELL_MISSING" &&
+    !("fatal_bmb_module_id_conflict" in EVENT_CATALOG_2)
+);
 const ps = parseState("WARNING (7) d=fa0ffff2d4c");
 check("event data: the state's d= suffix parses", ps.active && ps.count === 7 && ps.data === "FA0FFFF2D4C" && parseState("INACTIVE (2) d=1F").data === "1F");
 const oc = Object.values(EVENT_CATALOG).find((e) => e.type === "OVERCURRENT_DISCHARGING");

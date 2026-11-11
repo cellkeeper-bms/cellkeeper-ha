@@ -1,0 +1,132 @@
+<!doctype html>
+<!--
+  Shows the dashboard's cards without Home Assistant, fed by made-up packs (scenarios.js).
+
+    npm run build:dev
+    python -m http.server 8377        (in frontend/)
+    http://localhost:8377/preview/?view=overview&scenario=charging
+
+  view: overview (the Overview's cards), pack (the pack card alone), faults (the Event view's
+        "How a fault happens" card), system (the System view's BMS card)
+  scenario: charging, discharging, idle, precharge, held, fault
+  width: the page's width in px (default 1180), to try the cards' narrower layouts
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CellKeeper dashboard preview</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap" rel="stylesheet" />
+    <style>
+      /* Home Assistant's default dark theme, as far as the cards use it */
+      :root {
+        --primary-text-color: #e1e1e1;
+        --secondary-text-color: #9b9b9b;
+        --primary-color: #03a9f4;
+        --accent-color: #ff9800;
+        --primary-background-color: #111111;
+        --card-background-color: #1c1c1c;
+        --ha-card-background: #1c1c1c;
+        --ha-card-border-color: rgba(225, 225, 225, 0.12);
+        --ha-card-border-radius: 12px;
+        --divider-color: rgba(225, 225, 225, 0.12);
+        --success-color: #43a047;
+        --warning-color: #ffa600;
+        --error-color: #db4437;
+        --info-color: #039be5;
+        --energy-battery-out-color: #4db6ac;
+        --energy-battery-in-color: #f06292;
+        --disabled-text-color: #6f6f6f;
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        padding: 16px;
+        background: var(--primary-background-color);
+        color: var(--primary-text-color);
+        font-family: Roboto, "Noto Sans", sans-serif;
+        font-size: 14px;
+        -webkit-font-smoothing: antialiased;
+      }
+      #page {
+        display: grid;
+        gap: 16px;
+        margin: 0 auto;
+      }
+      .row {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: 1fr 1fr;
+        align-items: start;
+      }
+      .col {
+        display: grid;
+        gap: 16px;
+      }
+      .two {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: 1fr 1fr;
+      }
+      #what {
+        color: var(--secondary-text-color);
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="page"></div>
+    <div id="what"></div>
+    <script type="module">
+      import "./ha-stubs.js";
+      import { fakeHass } from "./scenarios.js";
+      await import("../dist-dev/cellkeeper-dashboard-dev.js");
+
+      const query = new URLSearchParams(location.search);
+      const hass = await fakeHass(query.get("scenario") ?? "charging");
+      const page = document.getElementById("page");
+      page.style.maxWidth = `${query.get("width") ?? 1180}px`;
+      document.getElementById("what").textContent = `${query.get("scenario") ?? "charging"}: ${hass.what}`;
+
+      // A card of the dev build ("cellkeeper-dev-..."), configured and given the fake hass
+      function card(kind, config = {}) {
+        const el = document.createElement(`cellkeeper-dev-${kind}`);
+        el.setConfig({ prefix: "ck0", ...config });
+        el.hass = hass;
+        return el;
+      }
+      function group(className, ...children) {
+        const el = document.createElement("div");
+        el.className = className;
+        el.append(...children);
+        return el;
+      }
+
+      const view = query.get("view") ?? "overview";
+      if (view === "pack") {
+        page.append(card("pack-card"));
+      } else if (view === "faults") {
+        page.append(card("fault-logic-card"));
+      } else if (view === "system") {
+        page.append(group("row", card("system-card", { kind: "bms" })));
+      } else {
+        page.append(
+          card("pack-card"),
+          group(
+            "row",
+            group("col", card("cells-card")),
+            group(
+              "two",
+              card("stat-card", { kind: "temperature" }),
+              card("stat-card", { kind: "energy" }),
+              card("stat-card", { kind: "isolation" }),
+              card("stat-card", { kind: "capacity" })
+            )
+          )
+        );
+      }
+      window.previewReady = true;
+    </script>
+  </body>
+</html>

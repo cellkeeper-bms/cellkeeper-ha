@@ -179,7 +179,7 @@ class Day:
             "kwh_in": round(self.kwh_in, 4),
             "kwh_out": round(self.kwh_out, 4),
             "capacity": capacity,
-            # The BMS's own estimate of the capacity (its EKF), at the end of the day.
+            # The BMS's own measure of the capacity (discovery.ROLES), at the end of the day.
             "capacity_est": None if (est := self.values.get("capacity_est")) is None else round(est, 3),
             "cycles": round(self.ah_out / capacity, 4) if capacity else None,
             "covered": round(self.covered_s / (self.end - self.start), 4),

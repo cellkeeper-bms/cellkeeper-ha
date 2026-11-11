@@ -4,7 +4,7 @@ import { define } from "../context.js";
 
 // custom:cellkeeper-stat-card
 //   prefix: ck0
-//   kind: temperature | energy | isolation | inverter
+//   kind: temperature | energy | isolation | capacity | inverter
 //   navigate: configuration   optional view path for the card's header link
 //
 // The Overview's small cards, one per kind: a headline number and the few readings that
@@ -31,6 +31,14 @@ const KINDS = {
     watched: () => ["isolation_resistance", "pack_pos_to_chassis", "pack_neg_to_chassis", "isolation_check_age", "pack_internal_voltage", "contactor_state_text"],
     show: (c) => c.has("isolation_resistance"),
     render: (c) => c._isolation(),
+  },
+  capacity: {
+    title: "Capacity",
+    icon: "mdi:battery-heart-variant",
+    watched: () => ["capacity", "nameplate_capacity", "learned_capacity", "learned_capacity_uncertainty", "learned_capacity_state_text",
+      "lifetime_charged", "lifetime_discharged", "lifetime_energy_charged", "lifetime_energy_discharged"],
+    show: (c) => c.has("nameplate_capacity") || c.has("learned_capacity") || c.has("lifetime_energy_charged"),
+    render: (c) => c._capacity(),
   },
   inverter: {
     title: "Inverter link",
@@ -140,6 +148,46 @@ class CellKeeperStatCard extends PackCard {
       ${packKwh && dis !== undefined
         ? html`<div class="sub">≈ ${fmt(this.hass, dis / packKwh, 2)} full cycles of ${fmt(this.hass, packKwh, 1)} kWh</div>`
         : ""}
+    `;
+  }
+
+  // What the pack can hold and what has gone through it: the capacity the BMS works with, the
+  // nameplate, the capacity it has learned from the cells' rest voltages (unknown until it has
+  // seen enough), and the lifetime counters it keeps over restarts.
+  _capacity() {
+    const inUse = this.num("capacity");
+    const nameplate = this.num("nameplate_capacity");
+    const learned = this.num("learned_capacity");
+    const sd = this.num("learned_capacity_uncertainty");
+    const state = this.str("learned_capacity_state_text");
+    const energyIn = this.numIn("lifetime_energy_charged", "kWh");
+    const energyOut = this.numIn("lifetime_energy_discharged", "kWh");
+    const ahOut = this.num("lifetime_discharged");
+    const energy = (kwh) => (kwh === undefined ? "–" : kwh >= 10000 ? `${fmt(this.hass, kwh / 1000, 1)} MWh` : `${fmt(this.hass, kwh, kwh < 100 ? 1 : 0)} kWh`);
+    const learning = { "NOT LEARNING": "not learning", "NO DATA": "not yet", PRELIMINARY: "preliminary", GOOD: "good" }[state];
+    const cycles = ahOut !== undefined && (nameplate ?? inUse) ? ahOut / (nameplate ?? inUse) : undefined;
+    const row = (key, label, value, note) =>
+      this.has(key)
+        ? html`<div class="row clickable" @click=${() => this.moreInfo(key)}>
+            <span>${label}</span><span class="num">${value}${note ? html` <i class="dim">${note}</i>` : ""}</span>
+          </div>`
+        : "";
+    return html`
+      <div class="headline clickable" @click=${() => this.moreInfo("capacity")}>
+        <span class="big num">${fmt(this.hass, inUse, 0)}<span class="unit">Ah in use</span></span>
+      </div>
+      <div class="sub">${cycles !== undefined ? `≈ ${fmt(this.hass, cycles, cycles < 10 ? 1 : 0)} full cycles so far` : html`&nbsp;`}</div>
+      <div class="rows">
+        ${row("nameplate_capacity", "Nameplate", `${fmt(this.hass, nameplate, 0)} Ah`)}
+        ${row(
+          "learned_capacity",
+          "Learned",
+          learned === undefined ? "not yet" : `${fmt(this.hass, learned, 1)} Ah`,
+          learned === undefined ? "" : [sd !== undefined && `± ${fmt(this.hass, sd, 1)}`, learning].filter(Boolean).join(", ")
+        )}
+        ${row("lifetime_energy_charged", "Lifetime in", energy(energyIn))}
+        ${row("lifetime_energy_discharged", "Lifetime out", energy(energyOut))}
+      </div>
     `;
   }
 
@@ -315,6 +363,11 @@ class CellKeeperStatCard extends PackCard {
       }
       .row span:first-child {
         color: var(--ck-muted);
+      }
+      .row .dim {
+        color: var(--ck-muted);
+        font-style: normal;
+        font-size: 12px;
       }
     `,
   ];

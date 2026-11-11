@@ -93,23 +93,33 @@ history, so 24 h opens in about a second, in 2D or 3D. Both fill the window's he
 
 One page that answers "is the pack OK, and what is it doing?":
 
-- **Pack card**: state of charge on the CellKeeper battery, filled to the level and with the logo's
-  arrow running in or out while it charges or discharges, in the charge or discharge colour; stored energy and the change over the
-  last hour; system and contactor state; a banner for every active warning, critical or fatal
-  event; and a chip when a new dashboard version is out.
-- **Power flow**: charging/discharging power with time to full or empty, current and pack and
-  output voltage, and a centre-zero bar of the current against the charge and discharge limits
-  the BMS is sending the inverter, naming the limit that is in force (temperature, cell voltage,
-  working range, setting, …), so "why isn't it charging?" answers itself.
+- **Pack card**: the pack, its contactors and the inverter drawn as the circuit they are, the
+  way the pack's display draws its Home page. The battery is filled to the state of charge; the
+  contactors are drawn closed, open or precharging; arrow heads run along the line the way the
+  power flows, green while charging and blue while discharging, with the power above the line,
+  the pack's and the inverter side's voltage at its ends, and the current and the time to full
+  or empty under it. Also the stored energy and the change over the last hour; system and
+  contactor state; a banner for every active warning, critical or fatal event; and a chip when
+  a new dashboard version is out.
+- **Current between its limits**: a centre-zero bar of the current against the charge and
+  discharge limits the BMS is sending the inverter, naming the limit that is in force
+  (temperature, cell voltage, working range, setting, …), so "why isn't it charging?" answers
+  itself.
+- **Sent to the inverter**: what the BMS tells the inverter over CAN: state of charge, the
+  voltages to charge and discharge to, capacity left and full.
 - **Last 24 h**: SOC and charge/discharge power from Home Assistant's 5-minute statistics; hover for
   values, click for the full history.
 - **Cells**: every cell's voltage zoomed to the spread, the highest (limits charging) and lowest
   (limits discharging) cells marked, balancing cells flagged, and the spread rated.
-- **Temperature**, **Energy today** (above the cells on a phone), **Isolation** (rated in Ω/V) and
-  **Inverter link** cards, and Run / Stop / Calibrate buttons that ask before they act.
+- **Temperature**, **Energy today** (above the cells on a phone) and **Isolation** (rated in Ω/V)
+  cards, and Run / Stop / Calibrate buttons that ask before they act.
+- **Capacity** (HMI protocol 2): the capacity in use, the nameplate, the capacity the BMS has
+  learned with its uncertainty, lifetime energy in and out, and the full cycles so far.
 
 Everything is clickable through to the entity's history or the view with the details, and the
 page reflows from phone to wide screen in light and dark themes.
+
+(The two pictures here are of version 0.17; the pack card has been redrawn since.)
 
 The same page for a 108s LFP pack, idle and floating between balance charges:
 
@@ -164,6 +174,14 @@ The pack's health over the years, from the integration's daily records (1 y or A
   it has been active and what happens next (a warning's count against the number that turns it
   fatal; fatal events stay until the BMS restarts). Info events and events that were active
   earlier since the BMS started are listed underneath.
+- **How a fault happens**: the fault logic as a chart, with the pack's own situation marked on
+  it; the pack's display has the same chart. One sentence says where the pack stands now. Then
+  what each level does (a warning informs, a critical turns fatal if it stays, a fatal never
+  clears and puts the BMS in FAULT with the contactors forced open until it restarts), and the
+  way from start to closed contactors (Starting, Inactive, Operating, Supervisor, Tests,
+  Precharge, Closed) with the pack's step lit. Each step lists the events its own checks
+  raise, and a last list has the events that can end in FAULT at any step; every event shows
+  when it turns fatal, is lit while it is active, and opens its history on a click.
 - **Event log**: every event raised, repeated, escalated and cleared, with BMS starts and HMI
   reconnects; bursts of repeats fold into one line. Info events are hidden unless you ask for
   them. It reads the integration's own history (below), so it goes back as far as that has kept:
@@ -183,7 +201,7 @@ The pack's health over the years, from the integration's daily records (1 y or A
     from the HMI's Module IDs sensor.
   - If the integration isn't running, the log reads Home Assistant's history of the event sensors
     instead (10 days by default), without activity or snapshots.
-- **All events**: the firmware's 62 events grouped by area, with what each means, the level it
+- **All events**: the firmware's events (62, or 59 on HMI protocol 2) grouped by area, with what each means, the level it
   starts at, when it turns fatal, and its count since the BMS started. Searchable.
 
 The levels and escalation rules come from the firmware's event table (`bms/sys/events/events.h`
@@ -192,12 +210,19 @@ Stuck Open" is a warning that turns fatal after 20 occurrences. `python frontend
 rebuilds `frontend/src/events/catalog.js` from that table and the HMI's `bms_core.yaml`, with each
 event's data layout from events.h's `// data` lines.
 
+Firmware based on jonny5532/bmstest1 master (HMI protocol 2) has another event list: a few events
+are new or gone, and some levels and delays differ. It is in `catalog2.js`
+(`make_events.py --protocol 2 <bms_core.yaml> <events.h>`), and a pack whose **BMS Protocol**
+sensor reads 2 gets it.
+
 ### The System view
 
 - **Link**: BMS → HMI → Home Assistant, with how fresh the BMS's data is and the Wi-Fi signal, so
   a dead link shows where it broke.
 - **BMS controller**: firmware build (commit and build time, flagged when built from uncommitted
   changes), board revision, serial and uptime, system and contactor state with their codes, the
+  supervisor (HMI protocol 2: whether the second chip allows the contactors, why not, and its
+  own reading of the cells), the
   pack voltages (measured, sum of the cells, output, across each contactor), each supply rail
   (3.3 V, 5 V, 12 V, contactor supply) as a pointer on a scale labelled with the firmware's trip
   points, and the controller chip and current shunt temperatures.
@@ -289,11 +314,13 @@ dashboards:
   (`2d`, `3d`), `height` and `height_3d` (px; by default they fill the window). The viewer's last
   choices override these.
 - `custom:cellkeeper-stat-card`: the Overview's small cards. Options: `prefix`, `kind`
-  (`temperature`, `energy`, `isolation`, `inverter`), `navigate` (a view path for its header).
+  (`temperature`, `energy`, `isolation`, `capacity`, `inverter`), `navigate` (a view path for its header).
 - `custom:cellkeeper-settings-card`, `custom:cellkeeper-lock-card`: the Configuration view's cards
   (see the comment at the top of `frontend/src/config/settings-card.js` for the options).
 - `custom:cellkeeper-events-card`: the Event view's cards. Options: `prefix`, `mode` (`status`,
   `log`, `catalog`), `days` (log without the integration's history, default 10), `range` (log: `10d`, `90d`, `1y`, `all`; default `90d`).
+- `custom:cellkeeper-fault-logic-card`: the Event view's "How a fault happens" chart. Option:
+  `prefix`.
 - `custom:cellkeeper-system-card`: the System view's cards. Options: `prefix`, `kind` (`link`,
   `bms`, `hmi`, `dashboard`).
 - `custom:cellkeeper-event-grid`: tiles for a pack's events that are active now

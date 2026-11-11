@@ -91,6 +91,29 @@ export class PackCard extends LitElement {
   }
 }
 
+// The BMS's states in the words the pack's display uses. The HMI's text sensors carry the
+// firmware's short names ("UNINIT", "PRECHG_INIT", "TST_NEG_CL").
+const SYSTEM_STATES = { UNINIT: "Not started", INIT: "Starting", CALIB: "Calibrating", INACTIVE: "Inactive", OPERATING: "Operating", FAULT: "Fault" };
+
+export function systemStateWord(state) {
+  if (!state) return undefined;
+  return SYSTEM_STATES[state] ?? state[0] + state.slice(1).toLowerCase().replace(/_/g, " ");
+}
+
+// "closed", "open", "precharging", "testing", ...: what the contactors are doing
+export function contactorWord(state) {
+  if (!state) return undefined;
+  if (state === "CLOSED") return "closed";
+  if (state === "OPEN") return "open";
+  if (state === "AWAIT_OPEN") return "opening";
+  if (state === "PRE_FAIL") return "open, precharge failed";
+  if (state === "TST_FAIL") return "open, test failed";
+  if (/^PRECH/.test(state)) return "precharging";
+  if (/^TST_/.test(state)) return "testing";
+  if (/^CAL/.test(state)) return "calibrating";
+  return state.toLowerCase().replace(/_/g, " ");
+}
+
 // Number formatting in the user's locale.
 export function fmt(hass, value, digits = 1) {
   if (value === undefined || value === null || !Number.isFinite(value)) return "–";
@@ -116,9 +139,10 @@ export function fmtDuration(hours) {
 // Shared look: card padding, small caps labels, big numbers.
 export const baseStyles = css`
   :host {
-    /* Home Assistant's energy colours, swapped: charging in the teal, discharging in the pink. */
-    --ck-charge: var(--energy-battery-out-color, #4db6ac);
-    --ck-discharge: var(--energy-battery-in-color, #f06292);
+    /* As on the pack's display: green is charging, blue is discharging. Yellow, orange and
+       red are kept for alarm levels. */
+    --ck-charge: #4fd68b;
+    --ck-discharge: #4db8ff;
     /* The cells card's lowest and highest cell, matching the From average heatmap. */
     --ck-cell-low: var(--energy-battery-out-color, #4db6ac);
     --ck-cell-high: var(--energy-battery-in-color, #f06292);

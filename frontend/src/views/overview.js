@@ -178,7 +178,7 @@ export function overviewView(ctx, options) {
           statCard(ctx, "temperature", "module_temperature_max"),
           onScreen(statCard(ctx, "energy", "energy_daily_charge"), NOT_MOBILE),
           statCard(ctx, "isolation", "isolation_resistance", "configuration"),
-          statCard(ctx, "inverter", "inverter_can_soc"),
+          statCard(ctx, "capacity", "nameplate_capacity"),
         ],
       },
     ]),
