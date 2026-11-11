@@ -1,5 +1,5 @@
 import { html, css, nothing } from "lit";
-import { PackCard, baseStyles, fmt, fmtDuration } from "../overview/base.js";
+import { PackCard, baseStyles, fmt, fmtDuration, systemStateWord, contactorWord } from "../overview/base.js";
 import { define } from "../context.js";
 import { RUNNING_VERSION, dashboardUpdate, isVersion, sameVersion } from "../update.js";
 
@@ -136,7 +136,7 @@ class CellKeeperSystemCard extends PackCard {
         ${node(
           "cellkeeper:battery",
           "BMS",
-          bmsOk ? state ? state[0] + state.slice(1).toLowerCase() : "Reporting" : hmiOnline ? "Not reporting" : "Unknown",
+          bmsOk ? systemStateWord(state) ?? "Reporting" : hmiOnline ? "Not reporting" : "Unknown",
           bmsOk ? "good" : hmiOnline ? "bad" : "muted",
           () => this.moreInfo("system_state_text")
         )}
@@ -242,16 +242,21 @@ class CellKeeperSystemCard extends PackCard {
 
   // System and contactor state as text with the BMS's numeric code, and any pending request.
   _state() {
-    const row = (label, textKey, codeKey) => {
-      const text = this.str(textKey);
+    const row = (label, textKey, codeKey, word) => {
+      const raw = this.str(textKey);
+      const text = word ? word(raw) : raw;
       const code = this.num(codeKey);
       if (text === undefined && code === undefined) return "";
       return html`<div class="clickable" @click=${() => this.moreInfo(textKey)}>
-        <span>${label}</span><b>${text ?? "–"}</b>${code !== undefined ? html`<i class="dim">code ${fmt(this.hass, code, 0)}</i>` : ""}
+        <span>${label}</span><b>${text ?? "–"}</b>${word && raw ? html`<i class="dim">${raw}</i>` : ""}${code !== undefined ? html`<i class="dim">code ${fmt(this.hass, code, 0)}</i>` : ""}
       </div>`;
     };
     const request = this.str("system_request_text");
-    const out = [row("State", "system_state_text", "system_state"), row("Contactors", "contactor_state_text", "contactor_state")];
+    const capital = (s) => s && s[0].toUpperCase() + s.slice(1);
+    const out = [
+      row("State", "system_state_text", "system_state", systemStateWord),
+      row("Contactors", "contactor_state_text", "contactor_state", (s) => capital(contactorWord(s))),
+    ];
     if (request || this.num("system_request") !== undefined) out.push(row("Request", "system_request_text", "system_request"));
     return out.some((r) => r) ? html`<div class="facts">${out}</div>` : "";
   }

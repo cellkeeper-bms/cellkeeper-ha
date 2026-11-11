@@ -1,5 +1,5 @@
 import { html, svg, css, nothing } from "lit";
-import { PackCard, baseStyles, fmt, fmtPower, fmtDuration } from "./base.js";
+import { PackCard, baseStyles, fmt, fmtPower, fmtDuration, systemStateWord, contactorWord } from "./base.js";
 import { fetchDay } from "./history.js";
 import { BATTERY } from "../icons.js";
 import { define } from "../context.js";
@@ -185,7 +185,7 @@ class CellKeeperPackCard extends PackCard {
         <div class="chips">
           ${state
             ? html`<span class="chip" style="--c:${STATE_COLORS[state] ?? "var(--ck-muted)"}" @click=${() => this.moreInfo("system_state_text")}>
-                <i></i>${state[0] + state.slice(1).toLowerCase()}</span
+                <i></i>${systemStateWord(state)}</span
               >`
             : ""}
           ${contactor
@@ -194,7 +194,7 @@ class CellKeeperPackCard extends PackCard {
                 style="--c:${contactor === "CLOSED" ? "var(--ck-good)" : contactor === "OPEN" ? "var(--ck-muted)" : "var(--ck-info)"}"
                 @click=${() => this.moreInfo("contactor_state_text")}
                 ><ha-icon icon=${contactor === "CLOSED" ? "mdi:electric-switch-closed" : "mdi:electric-switch"}></ha-icon>Contactors
-                ${contactor.toLowerCase()}</span
+                ${contactorWord(contactor)}</span
               >`
             : ""}
           ${update?.state === "on"
@@ -238,7 +238,7 @@ class CellKeeperPackCard extends PackCard {
     const delta = soc !== undefined && hourAgo !== undefined ? soc - hourAgo : undefined;
     const level = Math.max(0, Math.min(100, soc ?? 0));
     const word =
-      contactor === undefined ? "" : closed ? "closed" : precharging ? "precharging" : contactor === "OPEN" ? "open" : contactor.toLowerCase().replace(/_/g, " ");
+      contactorWord(contactor) ?? "";
     const socText = html`<b>${soc === undefined ? "–" : fmt(this.hass, soc, 0)}<span>%</span></b>`;
     const amps =
       current === undefined ? "" : `${current > 0 ? "+" : ""}${fmt(this.hass, current, Math.abs(current) < 10 ? 2 : 1)} A`;

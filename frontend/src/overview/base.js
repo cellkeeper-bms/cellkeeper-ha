@@ -91,6 +91,29 @@ export class PackCard extends LitElement {
   }
 }
 
+// The BMS's states in the words the pack's display uses. The HMI's text sensors carry the
+// firmware's short names ("UNINIT", "PRECHG_INIT", "TST_NEG_CL").
+const SYSTEM_STATES = { UNINIT: "Not started", INIT: "Starting", CALIB: "Calibrating", INACTIVE: "Inactive", OPERATING: "Operating", FAULT: "Fault" };
+
+export function systemStateWord(state) {
+  if (!state) return undefined;
+  return SYSTEM_STATES[state] ?? state[0] + state.slice(1).toLowerCase().replace(/_/g, " ");
+}
+
+// "closed", "open", "precharging", "testing", ...: what the contactors are doing
+export function contactorWord(state) {
+  if (!state) return undefined;
+  if (state === "CLOSED") return "closed";
+  if (state === "OPEN") return "open";
+  if (state === "AWAIT_OPEN") return "opening";
+  if (state === "PRE_FAIL") return "open, precharge failed";
+  if (state === "TST_FAIL") return "open, test failed";
+  if (/^PRECH/.test(state)) return "precharging";
+  if (/^TST_/.test(state)) return "testing";
+  if (/^CAL/.test(state)) return "calibrating";
+  return state.toLowerCase().replace(/_/g, " ");
+}
+
 // Number formatting in the user's locale.
 export function fmt(hass, value, digits = 1) {
   if (value === undefined || value === null || !Number.isFinite(value)) return "–";
