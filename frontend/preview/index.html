@@ -6,8 +6,9 @@
     python -m http.server 8377        (in frontend/)
     http://localhost:8377/preview/?view=overview&scenario=charging
 
-  view: overview (the Overview's cards), pack (the pack card alone)
-  scenario: charging, discharging, idle, precharge, fault
+  view: overview (the Overview's cards), pack (the pack card alone), faults (the Event view's
+        "How a fault happens" card)
+  scenario: charging, discharging, idle, precharge, held, fault
   width: the page's width in px (default 1180), to try the cards' narrower layouts
 -->
 <html lang="en">
@@ -105,6 +106,8 @@
       const view = query.get("view") ?? "overview";
       if (view === "pack") {
         page.append(card("pack-card"));
+      } else if (view === "faults") {
+        page.append(card("fault-logic-card"));
       } else {
         page.append(
           card("pack-card"),

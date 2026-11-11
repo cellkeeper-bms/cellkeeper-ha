@@ -12,6 +12,7 @@ import "./config/lock-card.js";
 import "./config/settings-history-card.js";
 import "./health/longterm-card.js";
 import "./events/events-card.js";
+import "./events/fault-logic-card.js";
 import "./system/system-card.js";
 import { CellKeeperDashboardStrategy } from "./strategy.js";
 import { define } from "./context.js";

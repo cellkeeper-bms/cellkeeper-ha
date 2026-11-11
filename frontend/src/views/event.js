@@ -150,6 +150,11 @@ export function eventView(ctx, options = {}) {
     title: "Event",
     type: "sections",
     max_columns: 2,
-    sections: [{ column_span: 2, cards: [card("status")] }, { cards: [card("log")] }, { cards: [card("catalog")] }],
+    sections: [
+      { column_span: 2, cards: [card("status")] },
+      { column_span: 2, cards: [{ type: "custom:cellkeeper-fault-logic-card", prefix: ctx.prefix }] },
+      { cards: [card("log")] },
+      { cards: [card("catalog")] },
+    ],
   };
 }

@@ -155,6 +155,22 @@ const SCENARIOS = {
       set(states, "contactor_voltage_positive", 163.6, "V");
     },
   },
+  held: {
+    what: "asked to close, held off by the supervisor",
+    hour: 13.67,
+    build(states) {
+      flow(states, healthy(states), 0);
+      set(states, "contactor_state_text", "OPEN");
+      set(states, "pack_output_voltage", 0.4, "V");
+      // Protocol 2 sensors the fixture pack does not have yet
+      for (const [key, value] of [["supervisor_state", "Disabled"], ["supervisor_reasons", "NO_SCAN, SETTLING"]]) {
+        const id = `sensor.${PREFIX}_${key}`;
+        states[id] = { entity_id: id, state: value, attributes: { friendly_name: `${PREFIX} ${key}` } };
+      }
+      event(states, "_supervisor_not_enabled", "WARNING (1)");
+      event(states, "_closing_failed", "INACTIVE (3)");
+    },
+  },
   fault: {
     what: "bare desk board: FAULT, no cells, five events",
     hour: 13.67,
