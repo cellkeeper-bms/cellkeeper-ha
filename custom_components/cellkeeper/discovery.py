@@ -39,7 +39,11 @@ ROLES = {
     "soc_basic_count": "soc_basic",
     "soc_voltage_based": "soc_voltage",
     "module_ids": "module_ids",
+    # The BMS's own measure of the pack's capacity: its EKF's estimate on HMI protocol 1, the
+    # capacity its OCV learner has tracked on protocol 2 (unknown until it has learned enough).
+    # A pack has one or the other.
     "ekf_capacity": "capacity_est",
+    "learned_capacity": "capacity_est",
 }
 _CELL = re.compile(r"^cell_voltage_(\d+)$")
 _BALANCING = re.compile(r"^cell_balancing_time_(\d+)$")
