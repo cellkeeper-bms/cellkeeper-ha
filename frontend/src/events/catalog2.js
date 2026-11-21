@@ -9,7 +9,7 @@
 export const EVENT_CATALOG_2 = {
   "fatal_pos_stuck_open": {
     "type": "CONTACTOR_POS_STUCK_OPEN",
-    "id": 45,
+    "id": 46,
     "name": "POS Stuck Open",
     "level": "WARNING",
     "escalate": {
@@ -20,7 +20,7 @@ export const EVENT_CATALOG_2 = {
   },
   "fatal_pos_stuck_closed": {
     "type": "CONTACTOR_POS_STUCK_CLOSED",
-    "id": 46,
+    "id": 47,
     "name": "POS Stuck Closed",
     "level": "CRITICAL",
     "escalate": {
@@ -31,7 +31,7 @@ export const EVENT_CATALOG_2 = {
   },
   "fatal_neg_stuck_open": {
     "type": "CONTACTOR_NEG_STUCK_OPEN",
-    "id": 47,
+    "id": 48,
     "name": "NEG Stuck Open",
     "level": "WARNING",
     "escalate": {
@@ -42,7 +42,7 @@ export const EVENT_CATALOG_2 = {
   },
   "fatal_neg_stuck_closed": {
     "type": "CONTACTOR_NEG_STUCK_CLOSED",
-    "id": 48,
+    "id": 49,
     "name": "NEG Stuck Closed",
     "level": "CRITICAL",
     "escalate": {
@@ -53,7 +53,7 @@ export const EVENT_CATALOG_2 = {
   },
   "fatal_pre_stuck_open": {
     "type": "CONTACTOR_PRE_STUCK_OPEN",
-    "id": 49,
+    "id": 50,
     "name": "PRE Stuck Open",
     "level": "CRITICAL",
     "escalate": {
@@ -64,7 +64,7 @@ export const EVENT_CATALOG_2 = {
   },
   "fatal_pre_stuck_closed": {
     "type": "CONTACTOR_PRE_STUCK_CLOSED",
-    "id": 50,
+    "id": 51,
     "name": "PRE Stuck Closed",
     "level": "CRITICAL",
     "escalate": {
@@ -75,7 +75,7 @@ export const EVENT_CATALOG_2 = {
   },
   "critical_pre_voltage_high": {
     "type": "CONTACTOR_PRECHARGE_VOLTAGE_TOO_HIGH",
-    "id": 51,
+    "id": 52,
     "name": "PRE Voltage High",
     "level": "CRITICAL",
     "escalate": {
@@ -86,7 +86,7 @@ export const EVENT_CATALOG_2 = {
   },
   "critical_pre_current_high": {
     "type": "CONTACTOR_PRECHARGE_CURRENT_TOO_HIGH",
-    "id": 52,
+    "id": 53,
     "name": "PRE Current High",
     "level": "CRITICAL",
     "escalate": {
@@ -97,7 +97,7 @@ export const EVENT_CATALOG_2 = {
   },
   "critical_pos_unexpected_open": {
     "type": "CONTACTOR_POS_UNEXPECTED_OPEN",
-    "id": 53,
+    "id": 54,
     "name": "POS Unexpected Open",
     "level": "WARNING",
     "area": "Contactors",
@@ -105,7 +105,7 @@ export const EVENT_CATALOG_2 = {
   },
   "critical_neg_unexpected_open": {
     "type": "CONTACTOR_NEG_UNEXPECTED_OPEN",
-    "id": 54,
+    "id": 55,
     "name": "NEG Unexpected Open",
     "level": "WARNING",
     "area": "Contactors",
@@ -113,7 +113,7 @@ export const EVENT_CATALOG_2 = {
   },
   "critical_closing_failed": {
     "type": "CONTACTOR_CLOSING_FAILED",
-    "id": 55,
+    "id": 56,
     "name": "Closing Failed",
     "level": "WARNING",
     "escalate": {
@@ -296,7 +296,7 @@ export const EVENT_CATALOG_2 = {
     "name": "Cell Voltage Very High",
     "level": "CRITICAL",
     "escalate": {
-      "ms": 1000
+      "ms": 4000
     },
     "area": "Voltage",
     "desc": "A cell is above the firmware's hard max."
@@ -318,7 +318,7 @@ export const EVENT_CATALOG_2 = {
     "name": "Cell Voltage Very Low",
     "level": "CRITICAL",
     "escalate": {
-      "ms": 1000
+      "ms": 4000
     },
     "area": "Voltage",
     "desc": "A cell is below the firmware's hard min."
@@ -364,7 +364,7 @@ export const EVENT_CATALOG_2 = {
     "name": "Battery Temperature Very High",
     "level": "CRITICAL",
     "escalate": {
-      "ms": 1000
+      "ms": 4000
     },
     "area": "Temperature",
     "desc": "A module is above the hard temperature limit."
@@ -383,10 +383,21 @@ export const EVENT_CATALOG_2 = {
     "name": "Battery Temperature Very Low",
     "level": "CRITICAL",
     "escalate": {
-      "ms": 1000
+      "ms": 4000
     },
     "area": "Temperature",
     "desc": "A module is below the hard temperature limit."
+  },
+  "critical_thermistor_fault": {
+    "type": "THERMISTOR_FAULT",
+    "id": 39,
+    "name": "Thermistor Fault",
+    "level": "CRITICAL",
+    "escalate": {
+      "ms": 4000
+    },
+    "area": "Temperature",
+    "desc": "A pack thermistor reads outside -40 to 115 °C (open or shorted), so the pack is taken as hot."
   },
   "critical_voltage_mismatch": {
     "type": "VOLTAGE_MISMATCH",
@@ -394,14 +405,14 @@ export const EVENT_CATALOG_2 = {
     "name": "Voltage Mismatch",
     "level": "CRITICAL",
     "escalate": {
-      "ms": 1000
+      "ms": 4000
     },
     "area": "Voltage",
     "desc": "The sum of the cell voltages disagrees with the measured pack voltage."
   },
   "critical_bmb_read_error": {
     "type": "BMB_READ_ERROR",
-    "id": 39,
+    "id": 40,
     "name": "BMB Read Error",
     "level": "WARNING",
     "area": "Monitor boards",
@@ -409,7 +420,7 @@ export const EVENT_CATALOG_2 = {
   },
   "critical_bmb_crc_mismatch": {
     "type": "BMB_CRC_MISMATCH",
-    "id": 40,
+    "id": 41,
     "name": "BMB CRC Mismatch",
     "level": "WARNING",
     "area": "Monitor boards",
@@ -417,23 +428,23 @@ export const EVENT_CATALOG_2 = {
   },
   "warning_cell_voltage_glitch": {
     "type": "CELL_VOLTAGE_GLITCH",
-    "id": 41,
+    "id": 42,
     "name": "Cell Voltage Glitch",
     "level": "WARNING",
     "area": "Voltage",
     "desc": "A cell reading jumped implausibly and was ignored."
   },
-  "warning_module_temperature_glitch": {
-    "type": "MODULE_TEMPERATURE_GLITCH",
-    "id": 42,
-    "name": "Module Temperature Glitch",
+  "warning_bmb_temperature_glitch": {
+    "type": "BMB_TEMPERATURE_GLITCH",
+    "id": 43,
+    "name": "BMB Temperature Glitch",
     "level": "WARNING",
     "area": "Temperature",
-    "desc": "A module temperature jumped implausibly and was ignored."
+    "desc": "A thermistor or monitor board chip temperature jumped implausibly and was ignored."
   },
   "info_inverter_detected": {
     "type": "INVERTER_DETECTED",
-    "id": 58,
+    "id": 59,
     "name": "Inverter Detected",
     "level": "INFO",
     "area": "System",
@@ -503,7 +514,7 @@ export const EVENT_CATALOG_2 = {
   },
   "warning_bmb_pack_mismatch": {
     "type": "BMB_PACK_MISMATCH",
-    "id": 43,
+    "id": 44,
     "name": "BMB Pack Mismatch",
     "level": "WARNING",
     "area": "Monitor boards",
@@ -523,14 +534,14 @@ export const EVENT_CATALOG_2 = {
     "name": "Absent Channel Voltage",
     "level": "CRITICAL",
     "escalate": {
-      "ms": 1000
+      "ms": 4000
     },
     "area": "Monitor boards",
     "desc": "A channel the cell map says is unpopulated reads a voltage: a connected cell would go unchecked."
   },
   "warning_isolation_low": {
     "type": "ISOLATION_LOW",
-    "id": 44,
+    "id": 45,
     "name": "Isolation Low",
     "level": "WARNING",
     "area": "System",
@@ -546,7 +557,7 @@ export const EVENT_CATALOG_2 = {
   },
   "warning_supervisor_not_enabled": {
     "type": "SUPERVISOR_NOT_ENABLED",
-    "id": 56,
+    "id": 57,
     "name": "Supervisor Not Enabled",
     "level": "WARNING",
     "area": "Contactors",
@@ -554,7 +565,7 @@ export const EVENT_CATALOG_2 = {
   },
   "fatal_supervisor_disabled_contactors": {
     "type": "SUPERVISOR_DISABLED_CONTACTORS",
-    "id": 57,
+    "id": 58,
     "name": "Supervisor Disabled Contactors",
     "level": "CRITICAL",
     "escalate": {

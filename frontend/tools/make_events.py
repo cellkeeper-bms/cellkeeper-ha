@@ -79,6 +79,8 @@ DESCRIPTIONS = {
     "BMB_CRC_MISMATCH": "Battery monitor board data failed its CRC check.",
     "CELL_VOLTAGE_GLITCH": "A cell reading jumped implausibly and was ignored.",
     "MODULE_TEMPERATURE_GLITCH": "A module temperature jumped implausibly and was ignored.",
+    "BMB_TEMPERATURE_GLITCH": "A thermistor or monitor board chip temperature jumped implausibly and was ignored.",
+    "THERMISTOR_FAULT": "A pack thermistor reads outside -40 to 115 °C (open or shorted), so the pack is taken as hot.",
     "INVERTER_DETECTED": "The inverter is talking to the BMS on CAN.",
     "ESTOP_PRESSED": "The emergency stop input is active.",
     "BOOT_NORMAL": "The BMS started normally.",
@@ -109,7 +111,7 @@ def area(t):
         return "Monitor boards"
     if t.startswith("CELL_") or t.startswith("BATTERY_VOLTAGE") or t in ("SOFT_CHARGE_BUFFER_EXCEEDED", "VOLTAGE_MISMATCH"):
         return "Voltage"
-    if "TEMPERATURE" in t:
+    if "TEMPERATURE" in t or t == "THERMISTOR_FAULT":
         return "Temperature"
     if t.startswith("OVERCURRENT") or t == "CURRENT_STALE":
         return "Current"
